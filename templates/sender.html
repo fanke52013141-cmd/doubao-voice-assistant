@@ -254,24 +254,7 @@
             line-height: 24px;
             cursor: pointer;
         }
-        .delay-control {
-            flex-shrink: 0;
-            display: flex;
-            align-items: center;
-            justify-content: flex-start;
-            gap: 8px;
-            min-height: 42px;
-            margin-bottom: 10px;
-            padding: 0 10px;
-            color: #334155;
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            font-size: 0.9rem;
-            font-weight: 800;
-        }
-        .delay-control[hidden] { display: none; }
-        .paste-mode-control {
+        .image-settings-control {
             flex-shrink: 0;
             display: flex;
             align-items: center;
@@ -285,45 +268,103 @@
             border-radius: 10px;
             font-size: 0.9rem;
             font-weight: 800;
+            flex-wrap: nowrap;
         }
-        .paste-mode-control[hidden] { display: none; }
+        .image-settings-control[hidden] { display: none; }
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+            flex-shrink: 0;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #cbd5e1;
+            transition: .2s;
+            border-radius: 24px;
+        }
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .2s;
+            border-radius: 50%;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        input:checked + .toggle-slider {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        }
+        input:checked + .toggle-slider:before {
+            transform: translateX(20px);
+        }
+        .quick-send-label {
+            white-space: nowrap;
+            color: #0f172a;
+            flex-shrink: 0;
+        }
+        .delay-section {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .delay-section[hidden] { display: none; }
+        .paste-mode-section {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-left: auto;
+            flex-shrink: 0;
+        }
         .paste-mode-label {
-            min-width: 78px;
+            white-space: nowrap;
             color: #0f172a;
         }
         .paste-mode-btn {
-            flex: 1 1 0;
-            height: 32px;
+            width: 52px;
+            height: 28px;
             color: #334155;
             background: #ffffff;
             border: 1px solid #cbd5e1;
-            border-radius: 9px;
+            border-radius: 8px;
             font-weight: 900;
+            font-size: 0.82rem;
             cursor: pointer;
         }
         .paste-mode-btn.active {
             color: #ffffff;
             background: linear-gradient(135deg, #6366f1, #8b5cf6);
             border-color: #6366f1;
-            box-shadow: 0 5px 12px rgba(99, 102, 241, 0.2);
+            box-shadow: 0 3px 8px rgba(99, 102, 241, 0.2);
         }
         .paste-mode-btn.safe.active {
             background: linear-gradient(135deg, #0f766e, #14b8a6);
             border-color: #0f766e;
         }
-        .delay-label {
-            margin-right: auto;
-            color: #0f172a;
-        }
         .delay-btn {
             flex: 0 0 auto;
-            width: 30px;
-            height: 30px;
+            width: 28px;
+            height: 28px;
             color: #334155;
             background: #ffffff;
             border: 1px solid #cbd5e1;
             border-radius: 6px;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             font-weight: 700;
             cursor: pointer;
             touch-action: manipulation;
@@ -333,8 +374,9 @@
             cursor: default;
         }
         .delay-value {
-            min-width: 44px;
+            min-width: 38px;
             text-align: center;
+            font-size: 0.85rem;
         }
         .btn-section {
             flex-shrink: 0;
@@ -530,6 +572,17 @@
             width: 24px;
             height: 24px;
         }
+        body.keyboard-open .toggle-switch {
+            width: 40px;
+            height: 22px;
+        }
+        body.keyboard-open .toggle-slider:before {
+            height: 16px;
+            width: 16px;
+        }
+        body.keyboard-open input:checked + .toggle-slider:before {
+            transform: translateX(18px);
+        }
         body.keyboard-open .btn-section { padding-top: 5px; padding-bottom: 5px; }
         body.keyboard-open .btn-action {
             min-height: 42px;
@@ -574,17 +627,33 @@
                 font-size: 1.02rem;
             }
             .image-grid { grid-template-columns: repeat(auto-fill, minmax(68px, 1fr)); gap: 8px; }
-            .delay-control {
+            .image-settings-control {
                 min-height: 38px;
                 padding: 0 8px;
                 font-size: 0.78rem;
                 gap: 6px;
             }
+            .toggle-switch {
+                width: 38px;
+                height: 22px;
+            }
+            .toggle-slider:before {
+                height: 16px;
+                width: 16px;
+            }
+            input:checked + .toggle-slider:before {
+                transform: translateX(16px);
+            }
             .delay-btn {
                 width: 24px;
                 height: 24px;
             }
-            .delay-value { min-width: 34px; }
+            .delay-value { min-width: 32px; font-size: 0.78rem; }
+            .paste-mode-btn {
+                width: 46px;
+                height: 26px;
+                font-size: 0.75rem;
+            }
             .ai-mode-section {
                 grid-auto-columns: minmax(64px, 1fr);
                 grid-template-rows: repeat(2, 30px);
@@ -643,16 +712,22 @@
                     <button id="imageCloseBtn" class="image-panel-action" type="button">关闭</button>
                 </div>
             </div>
-            <div id="delayControl" class="delay-control" hidden>
-                <span class="delay-label">图片发送延迟</span>
-                <button id="delayMinus" class="delay-btn" type="button" tabindex="-1">−</button>
-                <span id="delayValue" class="delay-value">10秒</span>
-                <button id="delayPlus" class="delay-btn" type="button" tabindex="-1">+</button>
-            </div>
-            <div id="pasteModeControl" class="paste-mode-control" hidden>
-                <span class="paste-mode-label">传图速度</span>
-                <button id="pasteModeFastBtn" class="paste-mode-btn" type="button">快速</button>
-                <button id="pasteModeSafeBtn" class="paste-mode-btn safe" type="button">稳妥</button>
+            <div id="imageSettingsControl" class="image-settings-control" hidden>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="quickSendToggle" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="quick-send-label">快速发图</span>
+                <div id="delaySection" class="delay-section">
+                    <button id="delayMinus" class="delay-btn" type="button" tabindex="-1">−</button>
+                    <span id="delayValue" class="delay-value">10秒</span>
+                    <button id="delayPlus" class="delay-btn" type="button" tabindex="-1">+</button>
+                </div>
+                <div class="paste-mode-section">
+                    <span class="paste-mode-label">速度</span>
+                    <button id="pasteModeFastBtn" class="paste-mode-btn" type="button">快速</button>
+                    <button id="pasteModeSafeBtn" class="paste-mode-btn safe" type="button">稳妥</button>
+                </div>
             </div>
             <div id="imageGrid" class="image-grid"></div>
         </div>
@@ -682,11 +757,12 @@
         const imageCloseBtn = document.getElementById('imageCloseBtn');
         const imagePreviewOverlay = document.getElementById('imagePreviewOverlay');
         const imagePreviewLarge = document.getElementById('imagePreviewLarge');
-        const delayControl = document.getElementById('delayControl');
+        const imageSettingsControl = document.getElementById('imageSettingsControl');
+        const quickSendToggle = document.getElementById('quickSendToggle');
+        const delaySection = document.getElementById('delaySection');
         const delayMinus = document.getElementById('delayMinus');
         const delayPlus = document.getElementById('delayPlus');
         const delayValue = document.getElementById('delayValue');
-        const pasteModeControl = document.getElementById('pasteModeControl');
         const pasteModeFastBtn = document.getElementById('pasteModeFastBtn');
         const pasteModeSafeBtn = document.getElementById('pasteModeSafeBtn');
         const heightMinus = document.getElementById('heightMinus');
@@ -703,6 +779,7 @@
         const MAX_IMAGE_DELAY_SECONDS = 60;
         const TEXTAREA_HEIGHT_STORAGE_KEY = 'voice-sync-textarea-height';
         const IMAGE_PASTE_MODE_STORAGE_KEY = 'voice-sync-image-paste-mode';
+        const QUICK_SEND_ENABLED_STORAGE_KEY = 'voice-sync-quick-send-enabled';
         const IMAGE_PASTE_MODE_FAST = 'fast';
         const IMAGE_PASTE_MODE_SAFE = 'safe';
         const DEFAULT_TEXTAREA_HEIGHT = 128;
@@ -719,6 +796,7 @@
         let loadingImages = false;
         let imageDelaySeconds = DEFAULT_IMAGE_DELAY_SECONDS;
         let imagePasteMode = loadImagePasteMode();
+        let quickSendEnabled = loadQuickSendEnabled();
         let textInputHeight = loadTextInputHeight();
         let lastDelayPointerTime = 0;
         let draftText = '';
@@ -762,6 +840,25 @@
             }
         }
 
+        function loadQuickSendEnabled() {
+            try {
+                const saved = localStorage.getItem(QUICK_SEND_ENABLED_STORAGE_KEY);
+                return saved !== 'false';
+            } catch (err) {
+                return true;
+            }
+        }
+
+        function setQuickSendEnabled(enabled) {
+            quickSendEnabled = !!enabled;
+            try {
+                localStorage.setItem(QUICK_SEND_ENABLED_STORAGE_KEY, String(quickSendEnabled));
+            } catch (err) {}
+            quickSendToggle.checked = quickSendEnabled;
+            updateDelayVisibility();
+            keepControlsVisible();
+        }
+
         function setImagePasteMode(mode) {
             imagePasteMode = mode === IMAGE_PASTE_MODE_SAFE ? IMAGE_PASTE_MODE_SAFE : IMAGE_PASTE_MODE_FAST;
             try {
@@ -772,7 +869,6 @@
         }
 
         function renderImagePasteMode() {
-            pasteModeControl.hidden = selectedImages.length === 0;
             pasteModeFastBtn.classList.toggle('active', imagePasteMode === IMAGE_PASTE_MODE_FAST);
             pasteModeSafeBtn.classList.toggle('active', imagePasteMode === IMAGE_PASTE_MODE_SAFE);
             const disabled = !socket.connected || loadingImages || selectedImages.length === 0;
@@ -1025,7 +1121,9 @@
         }
 
         function updateDelayVisibility() {
-            delayControl.hidden = selectedImages.length === 0;
+            const hasImages = selectedImages.length > 0;
+            imageSettingsControl.hidden = !hasImages;
+            delaySection.hidden = !quickSendEnabled;
             setImageDelaySeconds(imageDelaySeconds);
             renderImagePasteMode();
         }
@@ -1332,7 +1430,7 @@
             if (selectedAiRuleId) {
                 payload.ai_rule_id = selectedAiRuleId;
             }
-            if (images.length && action === 'send') {
+            if (images.length && action === 'send' && quickSendEnabled) {
                 payload.image_delay_ms = imageDelaySeconds * 1000;
             }
             socket.emit('send_text', payload);
@@ -1382,6 +1480,10 @@
 
         bindDelayButton(delayMinus, -1);
         bindDelayButton(delayPlus, 1);
+        quickSendToggle.checked = quickSendEnabled;
+        quickSendToggle.addEventListener('change', () => {
+            setQuickSendEnabled(quickSendToggle.checked);
+        });
         pasteModeFastBtn.onclick = () => setImagePasteMode(IMAGE_PASTE_MODE_FAST);
         pasteModeSafeBtn.onclick = () => setImagePasteMode(IMAGE_PASTE_MODE_SAFE);
         heightMinus.onclick = () => changeTextInputHeight(-TEXTAREA_HEIGHT_STEP);
@@ -1442,7 +1544,7 @@
                 if (selectedAiRuleId) {
                     payload.ai_rule_id = selectedAiRuleId;
                 }
-                if (images.length && action === 'send') {
+                if (images.length && action === 'send' && quickSendEnabled) {
                     payload.image_delay_ms = imageDelaySeconds * 1000;
                 }
                 socket.emit('send_text', payload);
