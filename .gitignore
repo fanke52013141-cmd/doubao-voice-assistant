@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.log
+pc-history.json
+ai-settings.json
+pc-ui-settings.json
+build/
+dist/
+*.spec
+.venv/
+venv/
+env/
+.env
+dist/
+build/

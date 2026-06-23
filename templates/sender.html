@@ -1,0 +1,1513 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
+    <title> </title>
+    <link rel="icon" href="/favicon.ico">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html {
+            height: 100%;
+            overflow: hidden;
+        }
+        body {
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+            position: fixed;
+            inset: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8fafc;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: var(--app-height, 100svh);
+            overflow: hidden;
+        }
+        .status {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            min-width: 76px;
+            height: 40px;
+            padding: 0 10px;
+            color: #334155;
+            background: rgba(255, 255, 255, 0.96);
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 3px 9px rgba(15, 23, 42, 0.07);
+            font-size: 0.84rem;
+            font-weight: 700;
+            pointer-events: none;
+        }
+        .status .dot { width: 8px; height: 8px; border-radius: 50%; }
+        .status .dot.connected { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+        .status .dot.disconnected { background: #ef4444; }
+        .height-control {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            height: 40px;
+            padding: 0 5px;
+            color: #334155;
+            background: rgba(255, 255, 255, 0.96);
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 3px 9px rgba(15, 23, 42, 0.07);
+            font-size: 0.78rem;
+            font-weight: 800;
+        }
+        .height-btn,
+        .height-ok {
+            height: 26px;
+            color: #334155;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-weight: 800;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+        .height-btn {
+            width: 24px;
+            font-size: 0.95rem;
+        }
+        .height-ok {
+            width: 34px;
+            font-size: 0.72rem;
+        }
+        .height-value {
+            min-width: 36px;
+            text-align: center;
+        }
+        .input-section {
+            flex: 0 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+            padding: 10px 12px 5px;
+            overflow: hidden;
+        }
+        textarea {
+            flex: 0 0 auto;
+            width: 100%;
+            height: var(--text-input-height, clamp(112px, 20svh, 155px));
+            min-height: 0;
+            padding: 14px 12px 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 16px;
+            line-height: 1.5;
+            resize: none;
+            background: white;
+            overflow-y: auto;
+        }
+        textarea:focus { outline: none; border-color: #6366f1; }
+        .image-row {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            flex-wrap: nowrap;
+            gap: 8px;
+            min-height: 44px;
+            overflow: visible;
+        }
+        .btn-image {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            min-width: 76px;
+            height: 40px;
+            padding: 0 10px;
+            color: #334155;
+            background: rgba(255, 255, 255, 0.96);
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 3px 9px rgba(15, 23, 42, 0.07);
+            font-size: 0.88rem;
+            font-weight: 800;
+            cursor: pointer;
+        }
+        .btn-image:disabled { opacity: 0.5; }
+        .btn-image-picker {
+            position: relative;
+            width: 40px;
+            min-width: 40px;
+            padding: 0;
+            font-size: 1.12rem;
+        }
+        .image-count-badge {
+            position: absolute;
+            top: -7px;
+            right: -7px;
+            min-width: 18px;
+            height: 18px;
+            padding: 0 4px;
+            color: #ffffff;
+            background: #ef4444;
+            border: 2px solid #ffffff;
+            border-radius: 999px;
+            font-size: 0.66rem;
+            font-weight: 800;
+            line-height: 14px;
+        }
+        .btn-history {
+            color: #4f46e5;
+            border-color: #e2e8f0;
+        }
+        .btn-history .history-icon {
+            color: #6366f1;
+            font-size: 0.9rem;
+        }
+        .ai-mode-section {
+            flex-shrink: 0;
+            display: grid;
+            grid-auto-flow: column;
+            grid-auto-columns: minmax(72px, 1fr);
+            grid-template-rows: repeat(2, 32px);
+            gap: 4px;
+            overflow-x: auto;
+            min-height: 72px;
+            max-height: 72px;
+            padding: 4px;
+            background: rgba(255, 255, 255, 0.96);
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 3px 9px rgba(15, 23, 42, 0.07);
+            -webkit-overflow-scrolling: touch;
+        }
+        .ai-mode-section[hidden] { display: none; }
+        .ai-mode-button {
+            width: 100%;
+            height: 32px;
+            padding: 0 6px;
+            color: #0f172a;
+            background: transparent;
+            border: 0;
+            border-radius: 7px;
+            font-size: 0.86rem;
+            font-weight: 800;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .ai-mode-button.active {
+            color: #0f766e;
+            background: linear-gradient(135deg, #ccfbf1, #99f6e4);
+            box-shadow: 0 3px 8px rgba(20, 184, 166, 0.16);
+        }
+        .ai-mode-button:disabled { opacity: 0.5; }
+        .image-row-spacer {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+            gap: 10px;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: 2px;
+        }
+        .image-empty {
+            grid-column: 1 / -1;
+            padding: 28px 10px;
+            color: #64748b;
+            text-align: center;
+            font-size: 0.95rem;
+        }
+        .image-thumb {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1;
+            border-radius: 7px;
+            overflow: hidden;
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            cursor: pointer;
+        }
+        .image-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .image-thumb button {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            width: 24px;
+            height: 24px;
+            border: none;
+            border-radius: 50%;
+            color: white;
+            background: rgba(15, 23, 42, 0.78);
+            font-size: 16px;
+            line-height: 24px;
+            cursor: pointer;
+        }
+        .delay-control {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 8px;
+            min-height: 42px;
+            margin-bottom: 10px;
+            padding: 0 10px;
+            color: #334155;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            font-weight: 800;
+        }
+        .delay-control[hidden] { display: none; }
+        .paste-mode-control {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 42px;
+            margin-bottom: 10px;
+            padding: 0 10px;
+            color: #334155;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            font-weight: 800;
+        }
+        .paste-mode-control[hidden] { display: none; }
+        .paste-mode-label {
+            min-width: 78px;
+            color: #0f172a;
+        }
+        .paste-mode-btn {
+            flex: 1 1 0;
+            height: 32px;
+            color: #334155;
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 9px;
+            font-weight: 900;
+            cursor: pointer;
+        }
+        .paste-mode-btn.active {
+            color: #ffffff;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border-color: #6366f1;
+            box-shadow: 0 5px 12px rgba(99, 102, 241, 0.2);
+        }
+        .paste-mode-btn.safe.active {
+            background: linear-gradient(135deg, #0f766e, #14b8a6);
+            border-color: #0f766e;
+        }
+        .delay-label {
+            margin-right: auto;
+            color: #0f172a;
+        }
+        .delay-btn {
+            flex: 0 0 auto;
+            width: 30px;
+            height: 30px;
+            color: #334155;
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+        .delay-btn:disabled {
+            opacity: 0.45;
+            cursor: default;
+        }
+        .delay-value {
+            min-width: 44px;
+            text-align: center;
+        }
+        .btn-section {
+            flex-shrink: 0;
+            padding: 6px 12px;
+            padding-bottom: max(6px, env(safe-area-inset-bottom));
+            background: #f8fafc;
+            display: flex;
+            gap: 12px;
+        }
+        .btn-action {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            min-height: 46px;
+            padding: 10px 12px;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn-action:active:not(:disabled) { transform: scale(0.97); }
+        .btn-action:disabled { opacity: 0.5; }
+        .btn-paste { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+        .btn-paste.done { background: linear-gradient(135deg, #22c55e, #16a34a); }
+        .btn-send { background: linear-gradient(135deg, #f97316, #ea580c); }
+        .btn-send.done { background: linear-gradient(135deg, #22c55e, #16a34a); }
+        .history-overlay,
+        .image-overlay,
+        .image-preview-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 20;
+            background: rgba(15, 23, 42, 0.38);
+        }
+        .image-preview-overlay {
+            z-index: 30;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        .image-preview-overlay img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 18px 42px rgba(15, 23, 42, 0.3);
+        }
+        .history-overlay[hidden],
+        .image-overlay[hidden],
+        .image-preview-overlay[hidden] { display: none; }
+        .history-panel,
+        .image-panel {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            max-height: min(74vh, calc(var(--app-height, 100svh) - 28px));
+            padding: 12px;
+            padding-bottom: max(12px, env(safe-area-inset-bottom));
+            background: #ffffff;
+            border-radius: 18px 18px 0 0;
+            box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.18);
+        }
+        .image-panel {
+            max-height: min(70vh, calc(var(--app-height, 100svh) - 36px));
+        }
+        .history-header,
+        .image-panel-header {
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding-bottom: 10px;
+        }
+        .history-title,
+        .image-panel-title {
+            font-size: 1.05rem;
+            font-weight: 800;
+            color: #0f172a;
+        }
+        .image-panel-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .history-close,
+        .image-panel-action {
+            height: 34px;
+            padding: 0 12px;
+            color: #334155;
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            border-radius: 9px;
+            font-weight: 700;
+        }
+        .image-panel-action.danger {
+            color: #b91c1c;
+            background: #fef2f2;
+            border-color: #fecaca;
+        }
+        .history-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .history-empty {
+            padding: 22px 10px;
+            color: #64748b;
+            text-align: center;
+            font-size: 0.95rem;
+        }
+        .history-item {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 10px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+        }
+        .history-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            color: #64748b;
+            font-size: 0.78rem;
+        }
+        .history-badge {
+            color: #4f46e5;
+            font-weight: 800;
+        }
+        .history-text {
+            max-height: 96px;
+            overflow: hidden;
+            white-space: pre-wrap;
+            word-break: break-word;
+            color: #0f172a;
+            font-size: 0.95rem;
+            line-height: 1.45;
+        }
+        .history-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .history-action {
+            height: 34px;
+            padding: 0 10px;
+            color: #334155;
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 9px;
+            font-size: 0.84rem;
+            font-weight: 700;
+        }
+        .history-action.primary {
+            color: white;
+            background: #6366f1;
+            border-color: #6366f1;
+        }
+        .history-action.send {
+            color: white;
+            background: #f97316;
+            border-color: #f97316;
+        }
+        .history-action:disabled {
+            opacity: 0.5;
+        }
+        body.keyboard-open .input-section { gap: 5px; padding-top: 6px; }
+        body.keyboard-open .status { height: 38px; }
+        body.keyboard-open textarea { height: var(--text-input-height, clamp(112px, 23svh, 150px)); }
+        body.keyboard-open .image-row { min-height: 40px; }
+        body.keyboard-open .ai-mode-section { padding-bottom: 0; }
+        body.keyboard-open .btn-image,
+        body.keyboard-open .height-control { height: 38px; }
+        body.keyboard-open .btn-image-picker {
+            width: 38px;
+            min-width: 38px;
+        }
+        body.keyboard-open .delay-btn {
+            width: 24px;
+            height: 24px;
+        }
+        body.keyboard-open .btn-section { padding-top: 5px; padding-bottom: 5px; }
+        body.keyboard-open .btn-action {
+            min-height: 42px;
+            padding-top: 8px;
+            padding-bottom: 8px;
+        }
+        @media (max-width: 380px) {
+            .input-section { padding-left: 10px; padding-right: 10px; }
+            textarea { height: var(--text-input-height, clamp(105px, 19svh, 145px)); }
+            .status {
+                min-width: 72px;
+                height: 38px;
+                padding: 0 8px;
+                font-size: 0.78rem;
+            }
+            .height-control {
+                height: 38px;
+                gap: 2px;
+                padding: 0 4px;
+                font-size: 0.72rem;
+            }
+            .height-btn {
+                width: 22px;
+                height: 24px;
+            }
+            .height-ok {
+                width: 32px;
+                height: 24px;
+            }
+            .height-value { min-width: 32px; }
+            .image-row { gap: 6px; min-height: 40px; }
+            .btn-image {
+                min-width: 70px;
+                height: 38px;
+                padding: 0 8px;
+                font-size: 0.8rem;
+            }
+            .btn-image-picker {
+                width: 38px;
+                min-width: 38px;
+                padding: 0;
+                font-size: 1.02rem;
+            }
+            .image-grid { grid-template-columns: repeat(auto-fill, minmax(68px, 1fr)); gap: 8px; }
+            .delay-control {
+                min-height: 38px;
+                padding: 0 8px;
+                font-size: 0.78rem;
+                gap: 6px;
+            }
+            .delay-btn {
+                width: 24px;
+                height: 24px;
+            }
+            .delay-value { min-width: 34px; }
+            .ai-mode-section {
+                grid-auto-columns: minmax(64px, 1fr);
+                grid-template-rows: repeat(2, 30px);
+                min-height: 66px;
+                max-height: 66px;
+                padding: 3px;
+            }
+            .ai-mode-button {
+                height: 30px;
+                font-size: 0.78rem;
+            }
+            body.keyboard-open textarea { height: var(--text-input-height, clamp(105px, 22svh, 140px)); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="app">
+        <div class="input-section">
+            <textarea id="textInput" placeholder="在此输入或语音输入..."></textarea>
+            <div class="image-row">
+                <input id="imageInput" type="file" accept="image/*" multiple hidden>
+                <button id="imageBtn" class="btn-image btn-image-picker" type="button" disabled aria-label="图片"><span aria-hidden="true">🖼️</span><span id="imageCountBadge" class="image-count-badge" hidden>0</span></button>
+                <button id="historyBtn" class="btn-image btn-history" type="button"><span class="history-icon" aria-hidden="true">📋</span><span>记录</span></button>
+                <div class="status"><span class="dot disconnected"></span><span class="text">连接中...</span></div>
+                <div id="heightControl" class="height-control" aria-label="输入框高度">
+                    <button id="heightMinus" class="height-btn" type="button" tabindex="-1">−</button>
+                    <span id="heightValue" class="height-value">128px</span>
+                    <button id="heightPlus" class="height-btn" type="button" tabindex="-1">+</button>
+                    <button id="heightOk" class="height-ok" type="button" tabindex="-1">确定</button>
+                </div>
+                <div class="image-row-spacer"></div>
+            </div>
+            <div id="aiModeSection" class="ai-mode-section" hidden></div>
+        </div>
+        <div class="btn-section">
+            <button id="pasteBtn" class="btn-action btn-paste" disabled><span>📋</span><span>传递</span></button>
+            <button id="sendBtn" class="btn-action btn-send" disabled><span>🚀</span><span>发送</span></button>
+        </div>
+    </div>
+    <div id="historyOverlay" class="history-overlay" hidden>
+        <div class="history-panel">
+            <div class="history-header">
+                <div class="history-title">最近记录</div>
+                <button id="historyCloseBtn" class="history-close" type="button">关闭</button>
+            </div>
+            <div id="historyList" class="history-list"></div>
+        </div>
+    </div>
+    <div id="imageOverlay" class="image-overlay" hidden>
+        <div class="image-panel">
+            <div class="image-panel-header">
+                <div id="imagePanelTitle" class="image-panel-title">已选图片</div>
+                <div class="image-panel-actions">
+                    <button id="imageAddBtn" class="image-panel-action" type="button">继续添加</button>
+                    <button id="imageClearBtn" class="image-panel-action danger" type="button">清空</button>
+                    <button id="imageCloseBtn" class="image-panel-action" type="button">关闭</button>
+                </div>
+            </div>
+            <div id="delayControl" class="delay-control" hidden>
+                <span class="delay-label">图片发送延迟</span>
+                <button id="delayMinus" class="delay-btn" type="button" tabindex="-1">−</button>
+                <span id="delayValue" class="delay-value">10秒</span>
+                <button id="delayPlus" class="delay-btn" type="button" tabindex="-1">+</button>
+            </div>
+            <div id="pasteModeControl" class="paste-mode-control" hidden>
+                <span class="paste-mode-label">传图速度</span>
+                <button id="pasteModeFastBtn" class="paste-mode-btn" type="button">快速</button>
+                <button id="pasteModeSafeBtn" class="paste-mode-btn safe" type="button">稳妥</button>
+            </div>
+            <div id="imageGrid" class="image-grid"></div>
+        </div>
+    </div>
+    <div id="imagePreviewOverlay" class="image-preview-overlay" hidden>
+        <img id="imagePreviewLarge" alt="preview">
+    </div>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        const socket = io();
+        const textInput = document.getElementById('textInput');
+        const pasteBtn = document.getElementById('pasteBtn');
+        const sendBtn = document.getElementById('sendBtn');
+        const imageInput = document.getElementById('imageInput');
+        const imageBtn = document.getElementById('imageBtn');
+        const imageCountBadge = document.getElementById('imageCountBadge');
+        const historyBtn = document.getElementById('historyBtn');
+        const aiModeSection = document.getElementById('aiModeSection');
+        const historyOverlay = document.getElementById('historyOverlay');
+        const historyCloseBtn = document.getElementById('historyCloseBtn');
+        const historyList = document.getElementById('historyList');
+        const imageOverlay = document.getElementById('imageOverlay');
+        const imagePanelTitle = document.getElementById('imagePanelTitle');
+        const imageGrid = document.getElementById('imageGrid');
+        const imageAddBtn = document.getElementById('imageAddBtn');
+        const imageClearBtn = document.getElementById('imageClearBtn');
+        const imageCloseBtn = document.getElementById('imageCloseBtn');
+        const imagePreviewOverlay = document.getElementById('imagePreviewOverlay');
+        const imagePreviewLarge = document.getElementById('imagePreviewLarge');
+        const delayControl = document.getElementById('delayControl');
+        const delayMinus = document.getElementById('delayMinus');
+        const delayPlus = document.getElementById('delayPlus');
+        const delayValue = document.getElementById('delayValue');
+        const pasteModeControl = document.getElementById('pasteModeControl');
+        const pasteModeFastBtn = document.getElementById('pasteModeFastBtn');
+        const pasteModeSafeBtn = document.getElementById('pasteModeSafeBtn');
+        const heightMinus = document.getElementById('heightMinus');
+        const heightPlus = document.getElementById('heightPlus');
+        const heightValue = document.getElementById('heightValue');
+        const heightOk = document.getElementById('heightOk');
+        const app = document.getElementById('app');
+        const statusDot = document.querySelector('.status .dot');
+        const statusText = document.querySelector('.status .text');
+        const MAX_IMAGE_EDGE = 1600;
+        const JPEG_QUALITY = 0.88;
+        const DEFAULT_IMAGE_DELAY_SECONDS = 10;
+        const MIN_IMAGE_DELAY_SECONDS = 1;
+        const MAX_IMAGE_DELAY_SECONDS = 60;
+        const TEXTAREA_HEIGHT_STORAGE_KEY = 'voice-sync-textarea-height';
+        const IMAGE_PASTE_MODE_STORAGE_KEY = 'voice-sync-image-paste-mode';
+        const IMAGE_PASTE_MODE_FAST = 'fast';
+        const IMAGE_PASTE_MODE_SAFE = 'safe';
+        const DEFAULT_TEXTAREA_HEIGHT = 128;
+        const MIN_TEXTAREA_HEIGHT = 86;
+        const MAX_TEXTAREA_HEIGHT = 220;
+        const TEXTAREA_HEIGHT_STEP = 12;
+        const HISTORY_DB_NAME = 'voice-sync-history';
+        const HISTORY_STORE_NAME = 'records';
+        const HISTORY_LIMIT = 20;
+        const AUTOSAVE_ID = 'autosave-draft';
+        const MAX_SOCKET_PAYLOAD_CHARS = 45 * 1024 * 1024;
+
+        let selectedImages = [];
+        let loadingImages = false;
+        let imageDelaySeconds = DEFAULT_IMAGE_DELAY_SECONDS;
+        let imagePasteMode = loadImagePasteMode();
+        let textInputHeight = loadTextInputHeight();
+        let lastDelayPointerTime = 0;
+        let draftText = '';
+        let historyDb = null;
+        let historyReady = false;
+        let lastAutosaveSignature = '';
+        let aiButtons = [];
+        let selectedAiRuleId = '';
+
+        function syncViewportHeight() {
+            const viewport = window.visualViewport;
+            const viewportHeight = viewport ? viewport.height : window.innerHeight;
+            const keyboardOpen = viewport
+                ? viewport.height < window.innerHeight - 80 || viewport.height < screen.height * 0.75
+                : false;
+            document.documentElement.style.setProperty('--app-height', `${viewportHeight}px`);
+            document.body.classList.toggle('keyboard-open', keyboardOpen);
+            window.scrollTo(0, 0);
+        }
+
+        function clampTextInputHeight(value) {
+            const numeric = Number.parseInt(value, 10);
+            if (!Number.isFinite(numeric)) return DEFAULT_TEXTAREA_HEIGHT;
+            return Math.min(MAX_TEXTAREA_HEIGHT, Math.max(MIN_TEXTAREA_HEIGHT, numeric));
+        }
+
+        function loadTextInputHeight() {
+            try {
+                return clampTextInputHeight(localStorage.getItem(TEXTAREA_HEIGHT_STORAGE_KEY));
+            } catch (err) {
+                return DEFAULT_TEXTAREA_HEIGHT;
+            }
+        }
+
+        function loadImagePasteMode() {
+            try {
+                const saved = localStorage.getItem(IMAGE_PASTE_MODE_STORAGE_KEY);
+                return saved === IMAGE_PASTE_MODE_SAFE ? IMAGE_PASTE_MODE_SAFE : IMAGE_PASTE_MODE_FAST;
+            } catch (err) {
+                return IMAGE_PASTE_MODE_FAST;
+            }
+        }
+
+        function setImagePasteMode(mode) {
+            imagePasteMode = mode === IMAGE_PASTE_MODE_SAFE ? IMAGE_PASTE_MODE_SAFE : IMAGE_PASTE_MODE_FAST;
+            try {
+                localStorage.setItem(IMAGE_PASTE_MODE_STORAGE_KEY, imagePasteMode);
+            } catch (err) {}
+            renderImagePasteMode();
+            keepControlsVisible();
+        }
+
+        function renderImagePasteMode() {
+            pasteModeControl.hidden = selectedImages.length === 0;
+            pasteModeFastBtn.classList.toggle('active', imagePasteMode === IMAGE_PASTE_MODE_FAST);
+            pasteModeSafeBtn.classList.toggle('active', imagePasteMode === IMAGE_PASTE_MODE_SAFE);
+            const disabled = !socket.connected || loadingImages || selectedImages.length === 0;
+            pasteModeFastBtn.disabled = disabled;
+            pasteModeSafeBtn.disabled = disabled;
+        }
+
+        function applyTextInputHeight() {
+            textInputHeight = clampTextInputHeight(textInputHeight);
+            document.documentElement.style.setProperty('--text-input-height', `${textInputHeight}px`);
+            heightValue.textContent = `${textInputHeight}px`;
+            heightMinus.disabled = textInputHeight <= MIN_TEXTAREA_HEIGHT;
+            heightPlus.disabled = textInputHeight >= MAX_TEXTAREA_HEIGHT;
+        }
+
+        function changeTextInputHeight(delta) {
+            textInputHeight = clampTextInputHeight(textInputHeight + delta);
+            applyTextInputHeight();
+            keepControlsVisible();
+        }
+
+        function saveTextInputHeight() {
+            textInputHeight = clampTextInputHeight(textInputHeight);
+            try {
+                localStorage.setItem(TEXTAREA_HEIGHT_STORAGE_KEY, String(textInputHeight));
+            } catch (err) {}
+            applyTextInputHeight();
+            heightOk.textContent = '已定';
+            window.setTimeout(() => {
+                heightOk.textContent = '确定';
+            }, 700);
+            keepControlsVisible();
+        }
+
+        function keepControlsVisible() {
+            requestAnimationFrame(() => {
+                window.scrollTo(0, 0);
+                if (
+                    document.activeElement &&
+                    (
+                        document.activeElement.classList.contains('delay-btn') ||
+                        document.activeElement.classList.contains('paste-mode-btn') ||
+                        document.activeElement.classList.contains('height-btn') ||
+                        document.activeElement.classList.contains('height-ok')
+                    )
+                ) {
+                    document.activeElement.blur();
+                }
+            });
+        }
+
+        function updateControls() {
+            const enabled = socket.connected && !loadingImages;
+            pasteBtn.disabled = !enabled;
+            sendBtn.disabled = !enabled;
+            imageBtn.disabled = !enabled;
+            imageAddBtn.disabled = !enabled;
+            imageClearBtn.disabled = !enabled || selectedImages.length === 0;
+            aiModeSection.querySelectorAll('button').forEach(button => {
+                button.disabled = !enabled;
+            });
+            updateDelayButtons();
+            renderImagePasteMode();
+        }
+
+        function normalizeText(text) {
+            return String(text || '')
+                .replace(/\r\n?/g, '\n')
+                .replace(/\u00a0/g, ' ')
+                .replace(/[\u200b\u200c\u200d\ufeff]/g, '');
+        }
+
+        function syncDraftText() {
+            draftText = normalizeText(textInput.value);
+            if (textInput.value !== draftText) {
+                const start = textInput.selectionStart;
+                const end = textInput.selectionEnd;
+                textInput.value = draftText;
+                try {
+                    textInput.setSelectionRange(start, end);
+                } catch (err) {}
+            }
+            return draftText;
+        }
+
+        function insertTextAtCursor(text) {
+            const normalized = normalizeText(text);
+            const start = textInput.selectionStart ?? textInput.value.length;
+            const end = textInput.selectionEnd ?? textInput.value.length;
+            const before = textInput.value.slice(0, start);
+            const after = textInput.value.slice(end);
+            textInput.value = before + normalized + after;
+            const cursor = start + normalized.length;
+            try {
+                textInput.setSelectionRange(cursor, cursor);
+            } catch (err) {}
+            syncDraftText();
+        }
+
+        function cloneImages(images) {
+            return (images || []).map(({ name, type, data }) => ({ name, type, data }));
+        }
+
+        function imagePayloadChars(images) {
+            return cloneImages(images).reduce((total, image) => total + (image.data ? image.data.length : 0), 0);
+        }
+
+        function assertImagesFitTransport(images) {
+            const totalChars = imagePayloadChars(images);
+            if (totalChars <= MAX_SOCKET_PAYLOAD_CHARS) return true;
+            const mb = (totalChars / 1024 / 1024).toFixed(1);
+            alert(`图片总量约 ${mb}MB，超过本次传输上限。请减少图片数量，或先压缩/分批传递。`);
+            return false;
+        }
+
+        function recordSignature(text, images) {
+            return JSON.stringify([
+                normalizeText(text),
+                cloneImages(images).map(image => [
+                    image.name || '',
+                    image.type || '',
+                    image.data ? image.data.length : 0,
+                    image.data ? image.data.slice(0, 80) : '',
+                ]),
+            ]);
+        }
+
+        function openHistoryDb() {
+            if (!window.indexedDB) {
+                return Promise.reject(new Error('IndexedDB unavailable'));
+            }
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(HISTORY_DB_NAME, 1);
+                request.onupgradeneeded = () => {
+                    const db = request.result;
+                    if (!db.objectStoreNames.contains(HISTORY_STORE_NAME)) {
+                        const store = db.createObjectStore(HISTORY_STORE_NAME, { keyPath: 'id' });
+                        store.createIndex('updatedAt', 'updatedAt');
+                    }
+                };
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        function historyStore(mode = 'readonly') {
+            const transaction = historyDb.transaction(HISTORY_STORE_NAME, mode);
+            return transaction.objectStore(HISTORY_STORE_NAME);
+        }
+
+        function requestToPromise(request) {
+            return new Promise((resolve, reject) => {
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function getHistoryRecords() {
+            if (!historyReady) return [];
+            const records = await requestToPromise(historyStore().getAll());
+            return records.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        }
+
+        async function deleteHistoryRecord(id) {
+            if (!historyReady) return;
+            await requestToPromise(historyStore('readwrite').delete(id));
+        }
+
+        async function pruneHistoryRecords() {
+            const records = await getHistoryRecords();
+            const extras = records.slice(HISTORY_LIMIT);
+            for (const record of extras) {
+                await deleteHistoryRecord(record.id);
+            }
+        }
+
+        async function freeHistorySpace(exceptId) {
+            const records = (await getHistoryRecords()).filter(record => record.id !== exceptId);
+            if (!records.length) return;
+            await deleteHistoryRecord(records[records.length - 1].id);
+        }
+
+        async function saveHistoryRecord(record, retry = 2) {
+            if (!historyReady) return;
+            try {
+                await requestToPromise(historyStore('readwrite').put(record));
+                await pruneHistoryRecords();
+            } catch (err) {
+                if (retry > 0) {
+                    await freeHistorySpace(record.id);
+                    return saveHistoryRecord(record, retry - 1);
+                }
+                console.warn('保存记录失败', err);
+            }
+        }
+
+        async function saveAutosaveRecord() {
+            const text = syncDraftText();
+            const images = cloneImages(selectedImages);
+            const hasContent = text.trim() || images.length;
+            const signature = recordSignature(text, images);
+            if (!hasContent) {
+                if (lastAutosaveSignature) {
+                    await deleteHistoryRecord(AUTOSAVE_ID);
+                    lastAutosaveSignature = '';
+                }
+                return;
+            }
+            if (signature === lastAutosaveSignature) return;
+            lastAutosaveSignature = signature;
+            const now = Date.now();
+            await saveHistoryRecord({
+                id: AUTOSAVE_ID,
+                kind: 'autosave',
+                action: 'draft',
+                text,
+                images,
+                image_paste_mode: imagePasteMode,
+                createdAt: now,
+                updatedAt: now,
+            });
+        }
+
+        function saveSentRecord(action, text, images) {
+            const hasContent = text.trim() || images.length;
+            if (!hasContent) return;
+            const now = Date.now();
+            saveHistoryRecord({
+                id: `${now}-${Math.random().toString(16).slice(2)}`,
+                kind: 'sent',
+                action,
+                text,
+                images: cloneImages(images),
+                image_paste_mode: imagePasteMode,
+                createdAt: now,
+                updatedAt: now,
+            });
+        }
+
+        function setImageDelaySeconds(seconds) {
+            imageDelaySeconds = Math.min(MAX_IMAGE_DELAY_SECONDS, Math.max(MIN_IMAGE_DELAY_SECONDS, seconds));
+            delayValue.textContent = `${imageDelaySeconds}秒`;
+            updateDelayButtons();
+        }
+
+        function updateDelayButtons() {
+            const canAdjust = socket.connected && !loadingImages && selectedImages.length > 0;
+            delayMinus.disabled = !canAdjust || imageDelaySeconds <= MIN_IMAGE_DELAY_SECONDS;
+            delayPlus.disabled = !canAdjust || imageDelaySeconds >= MAX_IMAGE_DELAY_SECONDS;
+        }
+
+        function updateDelayVisibility() {
+            delayControl.hidden = selectedImages.length === 0;
+            setImageDelaySeconds(imageDelaySeconds);
+            renderImagePasteMode();
+        }
+
+        socket.on('connect', () => {
+            statusDot.className = 'dot connected';
+            statusText.textContent = '已连接';
+            updateControls();
+            loadAiButtons();
+            if (!historyOverlay.hidden) renderHistory();
+        });
+        socket.on('disconnect', () => {
+            statusDot.className = 'dot disconnected';
+            statusText.textContent = '已断开';
+            updateControls();
+            if (!historyOverlay.hidden) renderHistory();
+        });
+
+        function selectAiRule(ruleId) {
+            selectedAiRuleId = ruleId || '';
+            renderAiButtons();
+            keepControlsVisible();
+        }
+
+        function renderAiButtons() {
+            aiModeSection.innerHTML = '';
+            if (!aiButtons.length) {
+                selectedAiRuleId = '';
+                aiModeSection.hidden = true;
+                return;
+            }
+            aiModeSection.hidden = false;
+            const normalButton = document.createElement('button');
+            normalButton.type = 'button';
+            normalButton.className = `ai-mode-button ${selectedAiRuleId ? '' : 'active'}`.trim();
+            normalButton.textContent = '普通';
+            normalButton.disabled = !socket.connected || loadingImages;
+            normalButton.onclick = () => selectAiRule('');
+            aiModeSection.appendChild(normalButton);
+
+            aiButtons.forEach(rule => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = `ai-mode-button ${selectedAiRuleId === rule.id ? 'active' : ''}`.trim();
+                button.textContent = rule.label || rule.wake_word || 'AI';
+                button.disabled = !socket.connected || loadingImages;
+                button.onclick = () => selectAiRule(rule.id);
+                aiModeSection.appendChild(button);
+            });
+        }
+
+        async function loadAiButtons() {
+            try {
+                const response = await fetch('/ai-buttons', { cache: 'no-store' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                aiButtons = Array.isArray(data.buttons) ? data.buttons : [];
+                if (selectedAiRuleId && !aiButtons.some(rule => rule.id === selectedAiRuleId)) {
+                    selectedAiRuleId = '';
+                }
+            } catch (err) {
+                console.warn('AI按钮加载失败', err);
+                aiButtons = [];
+                selectedAiRuleId = '';
+            }
+            renderAiButtons();
+        }
+
+        function readAsDataUrl(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function compressImage(dataUrl) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(img.width, img.height));
+                    const width = Math.max(1, Math.round(img.width * scale));
+                    const height = Math.max(1, Math.round(img.height * scale));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, width, height);
+                    ctx.drawImage(img, 0, 0, width, height);
+                    if (!canvas.toBlob) {
+                        resolve(canvas.toDataURL('image/jpeg', JPEG_QUALITY));
+                        return;
+                    }
+                    canvas.toBlob((blob) => {
+                        if (!blob) {
+                            resolve(dataUrl);
+                            return;
+                        }
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result);
+                        reader.onerror = () => resolve(dataUrl);
+                        reader.readAsDataURL(blob);
+                    }, 'image/jpeg', JPEG_QUALITY);
+                };
+                img.onerror = () => resolve(dataUrl);
+                img.src = dataUrl;
+            });
+        }
+
+        async function fileToImagePayload(file) {
+            const original = await readAsDataUrl(file);
+            const data = await compressImage(original);
+            return { name: file.name, type: 'image/jpeg', data };
+        }
+
+        function renderImages() {
+            imageGrid.innerHTML = '';
+            imageCountBadge.hidden = selectedImages.length === 0;
+            imageCountBadge.textContent = selectedImages.length > 99 ? '99+' : String(selectedImages.length);
+            imagePanelTitle.textContent = selectedImages.length ? `已选图片 ${selectedImages.length}` : '已选图片';
+            imageClearBtn.disabled = !socket.connected || loadingImages || selectedImages.length === 0;
+
+            if (!selectedImages.length) {
+                const empty = document.createElement('div');
+                empty.className = 'image-empty';
+                empty.textContent = '还没有选择图片';
+                imageGrid.appendChild(empty);
+                updateDelayVisibility();
+                keepControlsVisible();
+                return;
+            }
+
+            selectedImages.forEach((image, index) => {
+                const thumb = document.createElement('div');
+                thumb.className = 'image-thumb';
+                thumb.onclick = () => previewImage(index);
+
+                const img = document.createElement('img');
+                img.src = image.data;
+                img.alt = image.name || 'image';
+
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.textContent = '×';
+                remove.setAttribute('aria-label', '删除图片');
+                remove.onclick = (event) => {
+                    event.stopPropagation();
+                    selectedImages.splice(index, 1);
+                    renderImages();
+                    saveAutosaveRecord();
+                };
+
+                thumb.appendChild(img);
+                thumb.appendChild(remove);
+                imageGrid.appendChild(thumb);
+            });
+            updateDelayVisibility();
+            keepControlsVisible();
+        }
+
+        function openImagePicker() {
+            if (!socket.connected || loadingImages) return;
+            textInput.blur();
+            imageInput.click();
+        }
+
+        function openImagePanel() {
+            imageOverlay.hidden = false;
+            renderImages();
+        }
+
+        function closeImagePanel() {
+            imageOverlay.hidden = true;
+        }
+
+        function handleImageButtonClick() {
+            if (selectedImages.length) {
+                openImagePanel();
+                return;
+            }
+            openImagePicker();
+        }
+
+        function clearImages() {
+            if (!selectedImages.length) return;
+            selectedImages = [];
+            renderImages();
+            saveAutosaveRecord();
+            closeImagePreview();
+        }
+
+        function previewImage(index) {
+            const image = selectedImages[index];
+            if (!image) return;
+            imagePreviewLarge.src = image.data;
+            imagePreviewLarge.alt = image.name || 'preview';
+            imagePreviewOverlay.hidden = false;
+        }
+
+        function closeImagePreview() {
+            imagePreviewOverlay.hidden = true;
+            imagePreviewLarge.removeAttribute('src');
+        }
+
+        function formatRecordTime(timestamp) {
+            const date = new Date(timestamp || Date.now());
+            const pad = value => String(value).padStart(2, '0');
+            return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+        }
+
+        function recordBadge(record) {
+            if (record.kind === 'autosave') return '自动保存';
+            return record.action === 'send' ? '已发送' : '已传递';
+        }
+
+        async function renderHistory() {
+            const records = await getHistoryRecords();
+            historyList.innerHTML = '';
+            if (!records.length) {
+                const empty = document.createElement('div');
+                empty.className = 'history-empty';
+                empty.textContent = '还没有记录';
+                historyList.appendChild(empty);
+                return;
+            }
+
+            records.forEach(record => {
+                const item = document.createElement('article');
+                item.className = 'history-item';
+
+                const meta = document.createElement('div');
+                meta.className = 'history-meta';
+                const badge = document.createElement('span');
+                badge.className = 'history-badge';
+                badge.textContent = recordBadge(record);
+                const time = document.createElement('span');
+                time.textContent = formatRecordTime(record.updatedAt || record.createdAt);
+                meta.appendChild(badge);
+                meta.appendChild(time);
+                item.appendChild(meta);
+
+                const text = document.createElement('div');
+                text.className = 'history-text';
+                text.textContent = record.text || (record.images && record.images.length ? '[仅图片]' : '[空]');
+                item.appendChild(text);
+
+                const actions = document.createElement('div');
+                actions.className = 'history-actions';
+                actions.appendChild(historyActionButton('恢复', () => restoreRecord(record), 'primary'));
+                actions.appendChild(historyActionButton('传递', () => sendHistoryRecord(record, 'paste'), 'primary', !socket.connected));
+                actions.appendChild(historyActionButton('发送', () => sendHistoryRecord(record, 'send'), 'send', !socket.connected));
+                actions.appendChild(historyActionButton('复制文本', () => copyPlainText(record.text || ''), '', !record.text));
+                item.appendChild(actions);
+                historyList.appendChild(item);
+            });
+        }
+
+        function historyActionButton(label, onClick, variant = '', disabled = false) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `history-action ${variant}`.trim();
+            button.textContent = label;
+            button.disabled = disabled;
+            button.onclick = onClick;
+            return button;
+        }
+
+        async function openHistoryPanel() {
+            historyOverlay.hidden = false;
+            await renderHistory();
+        }
+
+        function closeHistoryPanel() {
+            historyOverlay.hidden = true;
+        }
+
+        function restoreRecord(record) {
+            textInput.value = record.text || '';
+            selectedImages = cloneImages(record.images);
+            setImagePasteMode(record.image_paste_mode || imagePasteMode);
+            syncDraftText();
+            renderImages();
+            closeHistoryPanel();
+            try {
+                textInput.focus({ preventScroll: true });
+            } catch (err) {
+                textInput.focus();
+            }
+        }
+
+        function sendHistoryRecord(record, action) {
+            if (!socket.connected || loadingImages) return;
+            const text = normalizeText(record.text || '');
+            const images = cloneImages(record.images);
+            if (!assertImagesFitTransport(images)) return;
+            const payload = {
+                text,
+                action,
+                images,
+                image_paste_mode: record.image_paste_mode || imagePasteMode,
+            };
+            if (selectedAiRuleId) {
+                payload.ai_rule_id = selectedAiRuleId;
+            }
+            if (images.length && action === 'send') {
+                payload.image_delay_ms = imageDelaySeconds * 1000;
+            }
+            socket.emit('send_text', payload);
+            saveSentRecord(action, text, images);
+            closeHistoryPanel();
+        }
+
+        async function copyPlainText(text) {
+            if (!text) return;
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    const helper = document.createElement('textarea');
+                    helper.value = text;
+                    helper.style.position = 'fixed';
+                    helper.style.left = '-9999px';
+                    document.body.appendChild(helper);
+                    helper.select();
+                    document.execCommand('copy');
+                    helper.remove();
+                }
+            } catch (err) {
+                alert('复制文本失败，请长按记录内容手动复制。');
+            }
+        }
+
+        function changeImageDelay(delta, e) {
+            e.preventDefault();
+            setImageDelaySeconds(imageDelaySeconds + delta);
+            keepControlsVisible();
+        }
+
+        function bindDelayButton(button, delta) {
+            button.onpointerdown = (e) => {
+                lastDelayPointerTime = Date.now();
+                changeImageDelay(delta, e);
+            };
+            button.onclick = (e) => {
+                if (Date.now() - lastDelayPointerTime < 500) {
+                    e.preventDefault();
+                    return;
+                }
+                changeImageDelay(delta, e);
+            };
+        }
+
+        bindDelayButton(delayMinus, -1);
+        bindDelayButton(delayPlus, 1);
+        pasteModeFastBtn.onclick = () => setImagePasteMode(IMAGE_PASTE_MODE_FAST);
+        pasteModeSafeBtn.onclick = () => setImagePasteMode(IMAGE_PASTE_MODE_SAFE);
+        heightMinus.onclick = () => changeTextInputHeight(-TEXTAREA_HEIGHT_STEP);
+        heightPlus.onclick = () => changeTextInputHeight(TEXTAREA_HEIGHT_STEP);
+        heightOk.onclick = saveTextInputHeight;
+
+        imageBtn.onclick = handleImageButtonClick;
+        imageAddBtn.onclick = openImagePicker;
+        imageClearBtn.onclick = clearImages;
+        imageCloseBtn.onclick = closeImagePanel;
+        imageOverlay.onclick = event => {
+            if (event.target === imageOverlay) closeImagePanel();
+        };
+        imagePreviewOverlay.onclick = closeImagePreview;
+        historyBtn.onclick = openHistoryPanel;
+        historyCloseBtn.onclick = closeHistoryPanel;
+        historyOverlay.onclick = event => {
+            if (event.target === historyOverlay) closeHistoryPanel();
+        };
+        imageInput.onchange = async () => {
+            const files = Array.from(imageInput.files || []).filter(file => file.type.startsWith('image/'));
+            if (!files.length) {
+                imageInput.value = '';
+                return;
+            }
+            loadingImages = true;
+            updateControls();
+            try {
+                for (const file of files) {
+                    const image = await fileToImagePayload(file);
+                    const nextImages = selectedImages.concat([image]);
+                    if (!assertImagesFitTransport(nextImages)) {
+                        break;
+                    }
+                    selectedImages.push(image);
+                }
+                renderImages();
+                closeImagePanel();
+                closeImagePreview();
+                saveAutosaveRecord();
+                keepControlsVisible();
+            } catch (err) {
+                console.error(err);
+                alert('图片读取失败，请换一张图片试试。');
+            } finally {
+                imageInput.value = '';
+                loadingImages = false;
+                updateControls();
+            }
+        };
+
+        function sendText(action) {
+            const text = syncDraftText();
+            if ((text.trim() || selectedImages.length) && socket.connected && !loadingImages) {
+                const images = selectedImages.map(({ name, type, data }) => ({ name, type, data }));
+                if (!assertImagesFitTransport(images)) return;
+                const payload = { text, action, images, image_paste_mode: imagePasteMode };
+                if (selectedAiRuleId) {
+                    payload.ai_rule_id = selectedAiRuleId;
+                }
+                if (images.length && action === 'send') {
+                    payload.image_delay_ms = imageDelaySeconds * 1000;
+                }
+                socket.emit('send_text', payload);
+                saveSentRecord(action, text, images);
+                textInput.value = '';
+                draftText = '';
+                selectedImages = [];
+                renderImages();
+                closeImagePanel();
+                closeImagePreview();
+                deleteHistoryRecord(AUTOSAVE_ID);
+                lastAutosaveSignature = '';
+                try {
+                    textInput.focus({ preventScroll: true });
+                } catch (err) {
+                    textInput.focus();
+                }
+                keepControlsVisible();
+                const btn = action === 'paste' ? pasteBtn : sendBtn;
+                const orig = btn.innerHTML;
+                btn.classList.add('done');
+                btn.innerHTML = '<span>✅</span><span>' + (action === 'paste' ? '已传递' : '已发送') + '</span>';
+                setTimeout(() => { btn.classList.remove('done'); btn.innerHTML = orig; }, 600);
+            }
+        }
+        pasteBtn.onclick = () => sendText('paste');
+        sendBtn.onclick = () => sendText('send');
+        textInput.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText('send'); } };
+        textInput.addEventListener('input', syncDraftText);
+        textInput.addEventListener('change', syncDraftText);
+        textInput.addEventListener('compositionend', syncDraftText);
+        textInput.addEventListener('paste', (e) => {
+            const pasted = e.clipboardData && e.clipboardData.getData('text/plain');
+            if (pasted !== undefined && pasted !== null && pasted !== '') {
+                e.preventDefault();
+                insertTextAtCursor(pasted);
+                keepControlsVisible();
+                return;
+            }
+            setTimeout(syncDraftText, 0);
+        });
+
+        async function initHistory() {
+            try {
+                historyDb = await openHistoryDb();
+                historyReady = true;
+                setInterval(saveAutosaveRecord, 500);
+            } catch (err) {
+                console.warn('记录功能不可用', err);
+                historyBtn.disabled = true;
+                historyBtn.textContent = '无记录';
+            }
+        }
+
+        initHistory();
+        loadAiButtons();
+        setInterval(loadAiButtons, 15000);
+        applyTextInputHeight();
+        syncViewportHeight();
+        window.addEventListener('resize', syncViewportHeight);
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', syncViewportHeight);
+            window.visualViewport.addEventListener('scroll', syncViewportHeight);
+        }
+        window.addEventListener('orientationchange', () => setTimeout(syncViewportHeight, 250));
+    </script>
+</body>
+</html>
