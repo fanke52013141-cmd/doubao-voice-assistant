@@ -46,7 +46,9 @@ def sender():
 @app.route('/favicon.ico')
 def favicon():
     """浏览器标签页图标"""
-    icon_path = resource_path("语音输入助手.ico")
+    icon_path = resource_path("voice-assistant-v2.ico")
+    if not os.path.exists(icon_path):
+        icon_path = resource_path("语音输入助手.ico")
     if not os.path.exists(icon_path):
         icon_path = resource_path("icon.ico")
     return send_file(icon_path, mimetype="image/x-icon")

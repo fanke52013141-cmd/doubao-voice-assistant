@@ -105,7 +105,9 @@ def create_shortcut():
     else:
         target = pythonw
         arguments = f'"{launcher_path}"'
-    icon_path = os.path.join(script_dir, "语音输入助手.ico")
+    icon_path = os.path.join(script_dir, "voice-assistant-v2.ico")
+    if not os.path.exists(icon_path):
+        icon_path = os.path.join(script_dir, "语音输入助手.ico")
     if not os.path.exists(icon_path):
         icon_path = os.path.join(script_dir, "icon.ico")
     working_dir = script_dir
