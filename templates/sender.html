@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-visual">
     <title> </title>
     <link rel="icon" href="/favicon.ico">
     <style>
@@ -915,12 +915,6 @@
             gap: 6px;
             padding: 8px 12px 4px;
         }
-        body.keyboard-open textarea {
-            height: 110px !important;
-            min-height: 110px !important;
-            padding: 10px 12px;
-            box-shadow: none;
-        }
         body.keyboard-open .btn-action {
             min-height: 44px;
             box-shadow: none;
@@ -1113,13 +1107,21 @@
         let aiButtons = [];
         let selectedAiRuleId = '';
 
+        let _lockedAppHeight = 0;
+
         function syncViewportHeight() {
             const viewport = window.visualViewport;
-            const viewportHeight = viewport ? viewport.height : window.innerHeight;
+            const layoutHeight = window.innerHeight;
+            // Lock the app height to the initial full-screen layout height
+            // so that the virtual keyboard (resizes-visual) never causes layout reflow.
+            if (!_lockedAppHeight || _lockedAppHeight < layoutHeight) {
+                _lockedAppHeight = layoutHeight;
+            }
+            document.documentElement.style.setProperty('--app-height', `${_lockedAppHeight}px`);
+            const viewportHeight = viewport ? viewport.height : layoutHeight;
             const keyboardOpen = viewport
                 ? viewport.height < window.innerHeight - 80 || viewport.height < screen.height * 0.75
                 : false;
-            document.documentElement.style.setProperty('--app-height', `${viewportHeight}px`);
             document.body.classList.toggle('keyboard-open', keyboardOpen);
             window.scrollTo(0, 0);
         }

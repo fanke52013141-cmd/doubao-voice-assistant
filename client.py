@@ -494,11 +494,29 @@ class AiSettingsDialog(QDialog):
         self.saved_font_size = self.font_size
         self.current_rule_index = -1
         self.test_worker = None
+        self._checkmark_svg_path = self._ensure_checkmark_svg()
         self.init_ui()
         self.load_api_fields()
         self.refresh_rule_list()
         if self.settings.get("rules"):
             self.rule_list.setCurrentRow(0)
+
+    def _ensure_checkmark_svg(self):
+        """Write a white checkmark SVG to a temp file for QSS image: url(...)."""
+        import tempfile
+        svg_content = (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" '
+            'fill="none" stroke="#ffffff" stroke-width="2.5" '
+            'stroke-linecap="round" stroke-linejoin="round">'
+            '<polyline points="2 8 6 12 14 4"/></svg>'
+        )
+        try:
+            tmp = os.path.join(tempfile.gettempdir(), "va_check.svg")
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(svg_content)
+            return tmp.replace("\\", "/")
+        except Exception:
+            return ""
 
     def control_height(self):
         return max(38, self.font_size + 20)
@@ -726,23 +744,27 @@ class AiSettingsDialog(QDialog):
             }}
             QCheckBox {{ spacing: 9px; }}
             QCheckBox::indicator {{
-                width: 16px;
-                height: 16px;
-                border: 1px solid #cbd5e1;
-                border-radius: 4px;
+                width: 18px;
+                height: 18px;
+                border: 2px solid #cbd5e1;
+                border-radius: 5px;
                 background-color: #ffffff;
             }}
             QCheckBox::indicator:hover {{
                 border-color: {UI_COLORS['brand']};
+                background-color: #f5f3ff;
             }}
             QCheckBox::indicator:checked {{
                 border-color: {UI_COLORS['brand']};
                 background-color: {UI_COLORS['brand']};
-                image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmZmZmIiBzdHJva2Utd2lkdGg9IjMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBvbHlsaW5lIHBvaW50cz0iMjAgNiA5IDE3IDQgMTIiLz48L3N2Zz4=);
+                image: url({self._checkmark_svg_path});
+            }}
+            QCheckBox::indicator:checked:hover {{
+                background-color: {UI_COLORS['brand_hover']};
             }}
             QCheckBox::indicator:disabled {{
                 background-color: #f2f4f8;
-                border-color: #cbd5e1;
+                border-color: #d1d9e0;
             }}
             QPushButton {{
                 background: #ffffff;
@@ -766,6 +788,51 @@ class AiSettingsDialog(QDialog):
             QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
             QScrollBar::handle:vertical {{ background: #cfd4e2; border-radius: 5px; min-height: 28px; }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+            QComboBox {{
+                background: #ffffff;
+                color: {UI_COLORS['ink']};
+                border: 1px solid {UI_COLORS['line']};
+                border-radius: 8px;
+                padding: 6px 32px 6px 10px;
+                font-size: {self.font_size}px;
+            }}
+            QComboBox:focus, QComboBox:on {{
+                border-color: {UI_COLORS['brand']};
+            }}
+            QComboBox::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: right center;
+                width: 28px;
+                border: none;
+                background: transparent;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                width: 0;
+                height: 0;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 6px solid {UI_COLORS['muted']};
+            }}
+            QComboBox QAbstractItemView {{
+                background: #ffffff;
+                color: {UI_COLORS['ink']};
+                border: 1px solid {UI_COLORS['brand']};
+                border-radius: 10px;
+                padding: 4px;
+                selection-background-color: {UI_COLORS['brand_soft']};
+                selection-color: {UI_COLORS['brand']};
+                outline: none;
+            }}
+            QComboBox QAbstractItemView::item {{
+                min-height: 32px;
+                padding: 4px 10px;
+                border-radius: 6px;
+            }}
+            QComboBox QAbstractItemView::item:hover {{
+                background: {UI_COLORS['brand_soft']};
+                color: {UI_COLORS['brand']};
+            }}
         """)
 
     def prompt_input_height(self):
