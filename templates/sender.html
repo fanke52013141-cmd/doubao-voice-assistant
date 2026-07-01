@@ -881,6 +881,11 @@
         }
         body.keyboard-open .container {
             overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        body.keyboard-open textarea {
+            height: var(--keyboard-textarea-height, var(--text-input-height, 188px)) !important;
+            min-height: 80px !important;
         }
     </style>
 </head>
@@ -1056,24 +1061,36 @@
         let aiButtons = [];
         let selectedAiRuleId = '';
 
-        let _lockedAppHeight = 0;
+        const CHROME_CONTROLS_HEIGHT = 56; // approx browser nav bar (back/forward/tabs)
+        const TOOLBAR_ROW_HEIGHT = 48;     // image-row
+        const BUTTONS_ROW_HEIGHT = 68;     // btn-section (传递+发送)
+        const INPUT_SECTION_PADDING = 24;  // top+bottom padding of input-section
+        const NON_TEXTAREA_HEIGHT = TOOLBAR_ROW_HEIGHT + BUTTONS_ROW_HEIGHT + INPUT_SECTION_PADDING;
 
         function syncViewportHeight() {
-            const viewport = window.visualViewport;
-            const layoutHeight = window.innerHeight;
-            // Lock app height to the largest seen layout height so the virtual
-            // keyboard (resizes-visual mode) never causes layout reflow.
-            if (layoutHeight > _lockedAppHeight) {
-                _lockedAppHeight = layoutHeight;
-            }
-            const appH = _lockedAppHeight || layoutHeight;
-            document.documentElement.style.setProperty('--app-height', `${appH}px`);
-            const vpHeight = viewport ? viewport.height : layoutHeight;
-            const keyboardOpen = viewport
-                ? viewport.height < window.innerHeight - 80 || viewport.height < screen.height * 0.75
+            const vv = window.visualViewport;
+            // Use the visual viewport height so the container always fits exactly
+            // in the visible area above the keyboard (interactive-widget=resizes-visual).
+            const visibleH = vv ? vv.height : window.innerHeight;
+            document.documentElement.style.setProperty('--app-height', `${visibleH}px`);
+
+            const keyboardOpen = vv
+                ? vv.height < window.innerHeight - 80 || vv.height < screen.height * 0.75
                 : false;
             document.body.classList.toggle('keyboard-open', keyboardOpen);
-            // Prevent any browser-initiated scroll that shifts the fixed layout
+
+            if (keyboardOpen && textInput) {
+                // Calculate how tall the textarea can be while keeping all UI visible.
+                const maxTextareaH = visibleH - NON_TEXTAREA_HEIGHT;
+                const userH = loadTextInputHeight();
+                // If user's height fits, use it; otherwise shrink just enough to show buttons.
+                const adaptedH = Math.min(userH, Math.max(80, maxTextareaH));
+                document.documentElement.style.setProperty('--keyboard-textarea-height', `${adaptedH}px`);
+            } else {
+                document.documentElement.style.removeProperty('--keyboard-textarea-height');
+            }
+
+            // Reset any browser-initiated scroll that shifts the fixed body
             document.documentElement.scrollTop = 0;
             document.body.scrollTop = 0;
         }
