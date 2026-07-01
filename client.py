@@ -1153,8 +1153,6 @@ class VoiceInputWindow(QMainWindow):
         control_bar.addWidget(self.text_display, 1)
 
         self.restart_btn = QPushButton("重启")
-        self.restart_btn.setIcon(lucide_icon("rotate", UI_COLORS["brand"], 21))
-        self.restart_btn.setIconSize(QSize(21, 21))
         self.restart_btn.setFixedSize(84, 52)
         self.restart_btn.setToolTip("重启语音输入助手")
         self.restart_btn.clicked.connect(self.restart_app)
@@ -1174,8 +1172,6 @@ class VoiceInputWindow(QMainWindow):
         
         # 置顶按钮
         self.pin_btn = QPushButton("置顶")
-        self.pin_btn.setIcon(lucide_icon("pin", UI_COLORS["brand"], 21))
-        self.pin_btn.setIconSize(QSize(21, 21))
         self.pin_btn.setFixedSize(130, 52)
         self.pin_btn.setToolTip("取消置顶")
         self.pin_btn.clicked.connect(self.toggle_pin)
@@ -1183,8 +1179,6 @@ class VoiceInputWindow(QMainWindow):
         control_bar.addWidget(self.pin_btn)
         
         self.history_btn = QPushButton("记录")
-        self.history_btn.setIcon(lucide_icon("clock", UI_COLORS["success"], 21))
-        self.history_btn.setIconSize(QSize(21, 21))
         self.history_btn.setFixedSize(84, 52)
         self.history_btn.setToolTip("展开最近记录")
         self.history_btn.clicked.connect(self.toggle_history_panel)
@@ -1202,8 +1196,6 @@ class VoiceInputWindow(QMainWindow):
         control_bar.addWidget(self.history_btn)
 
         self.settings_btn = QPushButton("设置")
-        self.settings_btn.setIcon(lucide_icon("settings", UI_COLORS["brand"], 21))
-        self.settings_btn.setIconSize(QSize(21, 21))
         self.settings_btn.setFixedSize(84, 52)
         self.settings_btn.setToolTip("打开 AI 设置")
         self.settings_btn.clicked.connect(self.open_ai_settings)
@@ -1316,7 +1308,7 @@ class VoiceInputWindow(QMainWindow):
                 color: {tc};
                 border: 2px solid {border_color};
                 border-radius: 12px;
-                font-size: {self.font_px(-1)}px;
+                font-size: {self.font_px(2)}px;
                 font-weight: 700;
                 padding: 0 12px;
             }}
