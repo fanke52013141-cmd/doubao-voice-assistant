@@ -557,9 +557,7 @@
         .history-action:disabled {
             opacity: 0.5;
         }
-        body.keyboard-open .btn-image-picker span:not(.image-count-badge) {
-            display: none;
-        }
+
         @media (max-width: 380px) {
             .input-section { padding-left: 10px; padding-right: 10px; }
             textarea { height: var(--text-input-height, clamp(105px, 19svh, 145px)); }
@@ -879,14 +877,7 @@
         .btn-action {
             flex-shrink: 0 !important;
         }
-        body.keyboard-open .container {
-            overflow-y: auto;
-            -webkit-overflow-scrolling: touch;
-        }
-        body.keyboard-open textarea {
-            height: var(--keyboard-textarea-height, var(--text-input-height, 188px)) !important;
-            min-height: 80px !important;
-        }
+
     </style>
 </head>
 <body>
@@ -1061,38 +1052,15 @@
         let aiButtons = [];
         let selectedAiRuleId = '';
 
-        const CHROME_CONTROLS_HEIGHT = 56; // approx browser nav bar (back/forward/tabs)
-        const TOOLBAR_ROW_HEIGHT = 48;     // image-row
-        const BUTTONS_ROW_HEIGHT = 68;     // btn-section (传递+发送)
-        const INPUT_SECTION_PADDING = 24;  // top+bottom padding of input-section
-        const NON_TEXTAREA_HEIGHT = TOOLBAR_ROW_HEIGHT + BUTTONS_ROW_HEIGHT + INPUT_SECTION_PADDING;
+        let _initHeight = 0;
 
         function syncViewportHeight() {
-            const vv = window.visualViewport;
-            // Use the visual viewport height so the container always fits exactly
-            // in the visible area above the keyboard (interactive-widget=resizes-visual).
-            const visibleH = vv ? vv.height : window.innerHeight;
-            document.documentElement.style.setProperty('--app-height', `${visibleH}px`);
-
-            const keyboardOpen = vv
-                ? vv.height < window.innerHeight - 80 || vv.height < screen.height * 0.75
-                : false;
-            document.body.classList.toggle('keyboard-open', keyboardOpen);
-
-            if (keyboardOpen && textInput) {
-                // Calculate how tall the textarea can be while keeping all UI visible.
-                const maxTextareaH = visibleH - NON_TEXTAREA_HEIGHT;
-                const userH = loadTextInputHeight();
-                // If user's height fits, use it; otherwise shrink just enough to show buttons.
-                const adaptedH = Math.min(userH, Math.max(80, maxTextareaH));
-                document.documentElement.style.setProperty('--keyboard-textarea-height', `${adaptedH}px`);
-            } else {
-                document.documentElement.style.removeProperty('--keyboard-textarea-height');
-            }
-
-            // Reset any browser-initiated scroll that shifts the fixed body
-            document.documentElement.scrollTop = 0;
-            document.body.scrollTop = 0;
+            // Lock to the very first measured full-screen height and never change it.
+            // The virtual keyboard overlays the bottom of the page; the page itself
+            // stays completely still — exactly what the user expects.
+            const h = window.innerHeight;
+            if (h > _initHeight) _initHeight = h;
+            document.documentElement.style.setProperty('--app-height', `${_initHeight}px`);
         }
 
         function clampTextInputHeight(value) {
@@ -1878,28 +1846,7 @@
             }
             setTimeout(syncDraftText, 0);
         });
-        // Prevent browser scroll-into-view from shifting the fixed layout when
-        // the virtual keyboard appears or disappears.
-        textInput.addEventListener('focus', () => {
-            document.documentElement.scrollTop = 0;
-            document.body.scrollTop = 0;
-            setTimeout(() => {
-                document.documentElement.scrollTop = 0;
-                document.body.scrollTop = 0;
-            }, 100);
-            setTimeout(() => {
-                document.documentElement.scrollTop = 0;
-                document.body.scrollTop = 0;
-                syncViewportHeight();
-            }, 400);
-        });
-        textInput.addEventListener('blur', () => {
-            setTimeout(() => {
-                document.documentElement.scrollTop = 0;
-                document.body.scrollTop = 0;
-                syncViewportHeight();
-            }, 100);
-        });
+
 
         async function initHistory() {
             try {
@@ -1918,11 +1865,8 @@
         setInterval(loadAiButtons, 15000);
         applyTextInputHeight();
         syncViewportHeight();
+        // Re-lock height when orientation changes (landscape ↔ portrait).
         window.addEventListener('resize', syncViewportHeight);
-        if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', syncViewportHeight);
-            window.visualViewport.addEventListener('scroll', syncViewportHeight);
-        }
         window.addEventListener('orientationchange', () => setTimeout(syncViewportHeight, 250));
     </script>
 </body>
