@@ -557,37 +557,8 @@
         .history-action:disabled {
             opacity: 0.5;
         }
-        body.keyboard-open .input-section { gap: 5px; padding-top: 6px; }
-        body.keyboard-open .status { height: 38px; }
-        body.keyboard-open textarea { height: var(--text-input-height, clamp(112px, 23svh, 150px)); }
-        body.keyboard-open .image-row { min-height: 40px; }
-        body.keyboard-open .ai-mode-section { padding-bottom: 0; }
-        body.keyboard-open .btn-image,
-        body.keyboard-open .height-control { height: 38px; }
-        body.keyboard-open .btn-image-picker {
-            width: 38px;
-            min-width: 38px;
-        }
-        body.keyboard-open .delay-btn {
-            width: 24px;
-            height: 24px;
-        }
-        body.keyboard-open .toggle-switch {
-            width: 40px;
-            height: 22px;
-        }
-        body.keyboard-open .toggle-slider:before {
-            height: 16px;
-            width: 16px;
-        }
-        body.keyboard-open input:checked + .toggle-slider:before {
-            transform: translateX(18px);
-        }
-        body.keyboard-open .btn-section { padding-top: 5px; padding-bottom: 5px; }
-        body.keyboard-open .btn-action {
-            min-height: 42px;
-            padding-top: 8px;
-            padding-bottom: 8px;
+        body.keyboard-open .btn-image-picker span:not(.image-count-badge) {
+            display: none;
         }
         @media (max-width: 380px) {
             .input-section { padding-left: 10px; padding-right: 10px; }
@@ -665,7 +636,7 @@
                 height: 30px;
                 font-size: 0.78rem;
             }
-            body.keyboard-open textarea { height: var(--text-input-height, 188px); }
+
         }
 
         /* 2026 UI refresh: shared visual language from the approved mockups. */
@@ -911,28 +882,6 @@
         body.keyboard-open .container {
             overflow-y: auto;
         }
-        body.keyboard-open .input-section {
-            gap: 6px;
-            padding: 8px 12px 4px;
-        }
-        body.keyboard-open .btn-action {
-            min-height: 44px;
-            box-shadow: none;
-        }
-        body.keyboard-open .btn-section {
-            padding: 4px 12px 8px;
-        }
-        body.keyboard-open .btn-image,
-        body.keyboard-open .status,
-        body.keyboard-open .height-control {
-            height: 36px;
-        }
-        body.keyboard-open .ai-mode-section {
-            min-height: 48px;
-        }
-        body.keyboard-open .ai-mode-button {
-            height: 36px;
-        }
     </style>
 </head>
 <body>
@@ -1112,18 +1061,21 @@
         function syncViewportHeight() {
             const viewport = window.visualViewport;
             const layoutHeight = window.innerHeight;
-            // Lock the app height to the initial full-screen layout height
-            // so that the virtual keyboard (resizes-visual) never causes layout reflow.
-            if (!_lockedAppHeight || _lockedAppHeight < layoutHeight) {
+            // Lock app height to the largest seen layout height so the virtual
+            // keyboard (resizes-visual mode) never causes layout reflow.
+            if (layoutHeight > _lockedAppHeight) {
                 _lockedAppHeight = layoutHeight;
             }
-            document.documentElement.style.setProperty('--app-height', `${_lockedAppHeight}px`);
-            const viewportHeight = viewport ? viewport.height : layoutHeight;
+            const appH = _lockedAppHeight || layoutHeight;
+            document.documentElement.style.setProperty('--app-height', `${appH}px`);
+            const vpHeight = viewport ? viewport.height : layoutHeight;
             const keyboardOpen = viewport
                 ? viewport.height < window.innerHeight - 80 || viewport.height < screen.height * 0.75
                 : false;
             document.body.classList.toggle('keyboard-open', keyboardOpen);
-            window.scrollTo(0, 0);
+            // Prevent any browser-initiated scroll that shifts the fixed layout
+            document.documentElement.scrollTop = 0;
+            document.body.scrollTop = 0;
         }
 
         function clampTextInputHeight(value) {
@@ -1908,6 +1860,28 @@
                 return;
             }
             setTimeout(syncDraftText, 0);
+        });
+        // Prevent browser scroll-into-view from shifting the fixed layout when
+        // the virtual keyboard appears or disappears.
+        textInput.addEventListener('focus', () => {
+            document.documentElement.scrollTop = 0;
+            document.body.scrollTop = 0;
+            setTimeout(() => {
+                document.documentElement.scrollTop = 0;
+                document.body.scrollTop = 0;
+            }, 100);
+            setTimeout(() => {
+                document.documentElement.scrollTop = 0;
+                document.body.scrollTop = 0;
+                syncViewportHeight();
+            }, 400);
+        });
+        textInput.addEventListener('blur', () => {
+            setTimeout(() => {
+                document.documentElement.scrollTop = 0;
+                document.body.scrollTop = 0;
+                syncViewportHeight();
+            }, 100);
         });
 
         async function initHistory() {
