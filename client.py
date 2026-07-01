@@ -1264,7 +1264,7 @@ class VoiceInputWindow(QMainWindow):
             }}
             QFrame#addressCard {{
                 background: #ffffff;
-                border: 1px solid {UI_COLORS['line']};
+                border: 2px solid #cbd5e1;
                 border-radius: 14px;
             }}
             QLabel#statusText {{
@@ -1273,14 +1273,14 @@ class VoiceInputWindow(QMainWindow):
                 border: none;
                 font-weight: 800;
             }}
-            QFrame#addressDivider {{ color: {UI_COLORS['line']}; background: {UI_COLORS['line']}; max-width: 1px; }}
+            QFrame#addressDivider {{ color: #cbd5e1; background: #cbd5e1; max-width: 1px; }}
             QPushButton#iconButton {{
                 min-width: 46px;
                 max-width: 46px;
                 min-height: 42px;
                 max-height: 42px;
                 background: #fbfcff;
-                border: 1px solid {UI_COLORS['line']};
+                border: 2px solid #cbd5e1;
                 border-radius: 10px;
             }}
             QPushButton#iconButton:hover {{ background: {UI_COLORS['brand_soft']}; }}
@@ -1305,21 +1305,25 @@ class VoiceInputWindow(QMainWindow):
     def expanded_window_height(self):
         return max(720, self.collapsed_window_height() + 570)
 
-    def button_style(self, background, hover, disabled=False):
+    def button_style(self, background, hover, border_color="#cbd5e1", text_color=None, disabled=False):
         disabled_style = ""
         if disabled:
-            disabled_style = "QPushButton:disabled { color: #9ca3af; background: #f3f4f8; }"
+            disabled_style = "QPushButton:disabled { color: #9ca3af; background: #f3f4f8; border-color: #cbd5e1; }"
+        tc = text_color if text_color else UI_COLORS['ink']
         return f"""
             QPushButton {{
                 background: {background};
-                color: {UI_COLORS['ink']};
-                border: 1px solid {UI_COLORS['line']};
+                color: {tc};
+                border: 2px solid {border_color};
                 border-radius: 12px;
                 font-size: {self.font_px(-1)}px;
                 font-weight: 700;
                 padding: 0 12px;
             }}
-            QPushButton:hover {{ background: {hover}; border-color: #cbc7ff; }}
+            QPushButton:hover {{
+                background: {hover};
+                border-color: {border_color};
+            }}
             {disabled_style}
         """
 
@@ -1359,7 +1363,7 @@ class VoiceInputWindow(QMainWindow):
         self.text_display.setStyleSheet(f"""
             QTextEdit {{
                 background: #ffffff;
-                border: 1px solid #8f87ff;
+                border: 2px solid #5b4bff;
                 border-radius: 12px;
                 padding: 8px 12px;
                 font-size: {self.font_px(2)}px;
@@ -1376,13 +1380,13 @@ class VoiceInputWindow(QMainWindow):
         """)
 
         self.restart_btn.setFixedSize(button_width, button_height)
-        self.restart_btn.setStyleSheet(self.button_style("#ffffff", "#f1efff", disabled=True))
+        self.restart_btn.setStyleSheet(self.button_style("#fff7ed", "#ffedd5", border_color="#fdba74", text_color="#9a3412", disabled=True))
         self.pin_btn.setFixedSize(pin_width, button_height)
         self.update_pin_style()
         self.history_btn.setFixedSize(button_width, button_height)
-        self.history_btn.setStyleSheet(self.button_style(UI_COLORS["success_soft"], "#dcfce7"))
+        self.history_btn.setStyleSheet(self.button_style(UI_COLORS["success_soft"], "#dcfce7", border_color="#86efac", text_color="#14532d"))
         self.settings_btn.setFixedSize(button_width, button_height)
-        self.settings_btn.setStyleSheet(self.button_style("#ffffff", "#f1efff"))
+        self.settings_btn.setStyleSheet(self.button_style("#f0f9ff", "#e0f2fe", border_color="#7dd3fc", text_color="#0369a1"))
 
         self.history_scroll.setFixedHeight(max(520, self.font_px(0) * 15))
         window_height = self.expanded_height if self.history_expanded else self.collapsed_height
@@ -1393,10 +1397,10 @@ class VoiceInputWindow(QMainWindow):
     def update_pin_style(self):
         """更新置顶按钮样式"""
         if self.is_pinned:
-            self.pin_btn.setStyleSheet(self.button_style("#ffffff", "#f1efff"))
+            self.pin_btn.setStyleSheet(self.button_style("#f5f3ff", "#e0e7ff", border_color="#c7d2fe", text_color="#3730a3"))
             self.pin_btn.setText("取消置顶")
         else:
-            self.pin_btn.setStyleSheet(self.button_style("#ffffff", "#f1efff"))
+            self.pin_btn.setStyleSheet(self.button_style("#f5f3ff", "#e0e7ff", border_color="#c7d2fe", text_color="#3730a3"))
             self.pin_btn.setText("置顶")
     
     def init_socket(self):
