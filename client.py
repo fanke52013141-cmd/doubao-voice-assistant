@@ -1109,7 +1109,7 @@ class VoiceInputWindow(QMainWindow):
         self.pin_btn = QPushButton("置顶")
         self.pin_btn.setIcon(lucide_icon("pin", UI_COLORS["brand"], 21))
         self.pin_btn.setIconSize(QSize(21, 21))
-        self.pin_btn.setFixedSize(102, 52)
+        self.pin_btn.setFixedSize(130, 52)
         self.pin_btn.setToolTip("取消置顶")
         self.pin_btn.clicked.connect(self.toggle_pin)
         self.update_pin_style()
@@ -1226,7 +1226,7 @@ class VoiceInputWindow(QMainWindow):
     def control_button_size(self):
         height = max(52, self.font_px(0) + 32)
         width = max(84, self.font_px(0) * 3 + 18)
-        pin_width = max(102, self.font_px(0) * 4 + 32)
+        pin_width = max(130, self.font_px(0) * 4 + 58)
         return width, height, pin_width
 
     def main_window_width(self):
