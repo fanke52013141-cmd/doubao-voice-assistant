@@ -573,17 +573,23 @@ class AiSettingsDialog(QDialog):
         self.show_title_check = QCheckBox("AI 处理中显示窗口标题")
         self.save_history_check = QCheckBox("记录原始文本和 AI 结果")
         self.startup_check = QCheckBox("开机自动启动")
-        behavior_layout.addWidget(self.show_title_check)
-        behavior_layout.addWidget(self.save_history_check)
-        behavior_layout.addWidget(self.startup_check)
-        behavior_layout.addSpacing(24)
+        
+        font_container = QWidget()
+        font_layout = QHBoxLayout(font_container)
+        font_layout.setContentsMargins(0, 0, 0, 0)
+        font_layout.setSpacing(6)
+        
         font_title = QLabel("字体大小")
         font_title.setObjectName("fontTitle")
-        behavior_layout.addWidget(font_title)
-        behavior_layout.addWidget(self.font_decrease_btn)
-        behavior_layout.addWidget(self.font_size_label)
-        behavior_layout.addWidget(self.font_increase_btn)
-        behavior_layout.addStretch()
+        font_layout.addWidget(font_title)
+        font_layout.addWidget(self.font_decrease_btn)
+        font_layout.addWidget(self.font_size_label)
+        font_layout.addWidget(self.font_increase_btn)
+        
+        behavior_layout.addWidget(self.show_title_check, 1)
+        behavior_layout.addWidget(self.save_history_check, 1)
+        behavior_layout.addWidget(self.startup_check, 1)
+        behavior_layout.addWidget(font_container, 1)
         layout.addWidget(behavior_group)
 
         rules_group = QGroupBox("唤醒规则")
@@ -613,6 +619,11 @@ class AiSettingsDialog(QDialog):
         rule_form.setVerticalSpacing(8)
         self.rule_enabled_check = QCheckBox("启用")
         self.button_enabled_check = QCheckBox("显示为手机按钮")
+        rule_checks_layout = QHBoxLayout()
+        rule_checks_layout.addWidget(self.rule_enabled_check)
+        rule_checks_layout.addWidget(self.button_enabled_check)
+        rule_checks_layout.addStretch()
+        
         self.wake_word_input = QLineEdit()
         self.wake_word_input.setMinimumHeight(self.control_height())
         self.button_label_input = QLineEdit()
@@ -631,8 +642,7 @@ class AiSettingsDialog(QDialog):
         self.system_prompt_input.setFixedHeight(self.prompt_input_height())
         self.system_prompt_input.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.system_prompt_input.setPlaceholderText("系统提示词")
-        rule_form.addRow("", self.rule_enabled_check)
-        rule_form.addRow("", self.button_enabled_check)
+        rule_form.addRow("", rule_checks_layout)
         rule_form.addRow("唤醒词", self.wake_word_input)
         rule_form.addRow("按钮名称", self.button_label_input)
         rule_form.addRow("匹配方式", self.match_mode_combo)
@@ -715,6 +725,25 @@ class AiSettingsDialog(QDialog):
                 background: {UI_COLORS['brand_soft']};
             }}
             QCheckBox {{ spacing: 9px; }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                background-color: #ffffff;
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: {UI_COLORS['brand']};
+            }}
+            QCheckBox::indicator:checked {{
+                border-color: {UI_COLORS['brand']};
+                background-color: {UI_COLORS['brand']};
+                image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmZmZmIiBzdHJva2Utd2lkdGg9IjMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBvbHlsaW5lIHBvaW50cz0iMjAgNiA5IDE3IDQgMTIiLz48L3N2Zz4=);
+            }}
+            QCheckBox::indicator:disabled {{
+                background-color: #f2f4f8;
+                border-color: #cbd5e1;
+            }}
             QPushButton {{
                 background: #ffffff;
                 color: {UI_COLORS['ink']};
@@ -828,7 +857,7 @@ class AiSettingsDialog(QDialog):
         self.rule_list.blockSignals(True)
         self.rule_list.clear()
         for rule in self.settings.get("rules", []):
-            enabled = "✓" if rule.get("enabled") else "×"
+            enabled = "☑" if rule.get("enabled") else "☐"
             button = "按钮" if rule.get("button_enabled") else "无按钮"
             mode = "包含" if rule.get("match_mode") == "contains" else "开头"
             self.rule_list.addItem(f"{enabled} {rule.get('wake_word', '')} · {button} · {mode}")

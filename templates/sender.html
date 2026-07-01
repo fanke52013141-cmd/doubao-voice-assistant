@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -887,6 +887,57 @@
             .image-panel-action { padding: 0 9px; font-size: 0.82rem; }
             .image-settings-control { padding: 8px 10px; flex-wrap: wrap; }
             .paste-mode-section { margin-left: 0; }
+        }
+
+        /* 软键盘弹起防压缩与整体自适应修复 */
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: var(--app-height, 100svh);
+            overflow-y: auto;
+            overflow-x: hidden;
+            -webkit-overflow-scrolling: touch;
+        }
+        .btn-section,
+        .input-section,
+        .image-row,
+        .ai-mode-section,
+        .status,
+        .height-control,
+        .btn-image,
+        .btn-action {
+            flex-shrink: 0 !important;
+        }
+        body.keyboard-open .container {
+            overflow-y: auto;
+        }
+        body.keyboard-open .input-section {
+            gap: 6px;
+            padding: 8px 12px 4px;
+        }
+        body.keyboard-open textarea {
+            height: 110px !important;
+            min-height: 110px !important;
+            padding: 10px 12px;
+            box-shadow: none;
+        }
+        body.keyboard-open .btn-action {
+            min-height: 44px;
+            box-shadow: none;
+        }
+        body.keyboard-open .btn-section {
+            padding: 4px 12px 8px;
+        }
+        body.keyboard-open .btn-image,
+        body.keyboard-open .status,
+        body.keyboard-open .height-control {
+            height: 36px;
+        }
+        body.keyboard-open .ai-mode-section {
+            min-height: 48px;
+        }
+        body.keyboard-open .ai-mode-button {
+            height: 36px;
         }
     </style>
 </head>
