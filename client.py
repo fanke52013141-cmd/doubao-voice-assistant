@@ -53,9 +53,9 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTextEdit, QPushButton, QLabel, QDialog, QScrollArea, QMenu, QFrame,
     QLineEdit, QCheckBox, QComboBox, QListWidget, QFormLayout,
-    QDialogButtonBox, QGroupBox, QFileDialog
+    QDialogButtonBox, QGroupBox, QFileDialog, QInputDialog
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QMimeData, QByteArray, QSize
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QMimeData, QByteArray, QSize, QUrl
 from PyQt5.QtGui import QIcon, QImage, QPixmap, QFont, QFontMetrics, QPainter
 from PyQt5.QtSvg import QSvgRenderer
 
@@ -360,12 +360,14 @@ class SocketIOThread(QThread):
             text = data.get('text', '')
             action = data.get('action', 'paste')  # paste=传递, send=发送
             images = data.get('images') or []
-            if text or images:
+            videos = data.get('videos') or []
+            if text or images or videos:
                 self.text_received.emit({
                     'action': action,
                     'text': text,
                     'ai_rule_id': data.get('ai_rule_id', ''),
                     'images': images,
+                    'videos': videos,
                     'image_delay_ms': data.get('image_delay_ms', DEFAULT_IMAGE_SEND_DELAY_MS),
                     'image_paste_mode': data.get('image_paste_mode', IMAGE_PASTE_MODE_FAST),
                 })
@@ -647,6 +649,13 @@ class AiSettingsDialog(QDialog):
         self.button_label_input = QLineEdit()
         self.button_label_input.setMinimumHeight(self.control_height())
         self.button_label_input.setPlaceholderText("手机按钮名称，留空则使用唤醒词")
+        self.folder_combo = QComboBox()
+        self.folder_combo.setMinimumHeight(self.control_height())
+        add_folder_btn = QPushButton("新建文件夹")
+        add_folder_btn.clicked.connect(self.add_rule_folder)
+        folder_row = QHBoxLayout()
+        folder_row.addWidget(self.folder_combo, 1)
+        folder_row.addWidget(add_folder_btn)
         self.match_mode_combo = QComboBox()
         self.match_mode_combo.setMinimumHeight(self.control_height())
         self.match_mode_combo.addItem("包含唤醒词", "contains")
@@ -663,6 +672,7 @@ class AiSettingsDialog(QDialog):
         rule_form.addRow("", rule_checks_layout)
         rule_form.addRow("唤醒词", self.wake_word_input)
         rule_form.addRow("按钮名称", self.button_label_input)
+        rule_form.addRow("所属文件夹", folder_row)
         rule_form.addRow("匹配方式", self.match_mode_combo)
         rule_form.addRow("输出动作", self.output_action_combo)
         rule_form.addRow("系统提示词", self.system_prompt_input)
@@ -693,7 +703,7 @@ class AiSettingsDialog(QDialog):
             input_widget.setMinimumHeight(self.control_height())
         for input_widget in (self.wake_word_input, self.button_label_input):
             input_widget.setMinimumHeight(self.control_height())
-        for combo in (self.match_mode_combo, self.output_action_combo):
+        for combo in (self.folder_combo, self.match_mode_combo, self.output_action_combo):
             combo.setMinimumHeight(self.control_height())
         self.system_prompt_input.setFixedHeight(self.prompt_input_height())
         self.resize(max(1450, self.font_size * 58), max(980, self.font_size * 38))
@@ -923,11 +933,13 @@ class AiSettingsDialog(QDialog):
     def refresh_rule_list(self):
         self.rule_list.blockSignals(True)
         self.rule_list.clear()
+        folder_names = {folder.get("id"): folder.get("name") for folder in self.settings.get("rule_folders", [])}
         for rule in self.settings.get("rules", []):
             enabled = "☑" if rule.get("enabled") else "☐"
             button = "按钮" if rule.get("button_enabled") else "无按钮"
             mode = "包含" if rule.get("match_mode") == "contains" else "开头"
-            self.rule_list.addItem(f"{enabled} {rule.get('wake_word', '')} · {button} · {mode}")
+            folder = folder_names.get(rule.get("folder_id"), "未分类")
+            self.rule_list.addItem(f"{folder} / {enabled} {rule.get('wake_word', '')} · {button} · {mode}")
         self.rule_list.blockSignals(False)
 
     def on_rule_selection_changed(self, row):
@@ -943,6 +955,7 @@ class AiSettingsDialog(QDialog):
             self.button_enabled_check,
             self.wake_word_input,
             self.button_label_input,
+            self.folder_combo,
             self.match_mode_combo,
             self.output_action_combo,
             self.system_prompt_input,
@@ -957,6 +970,7 @@ class AiSettingsDialog(QDialog):
             return
 
         rule = rules[row]
+        self.refresh_folder_combo(rule.get("folder_id", ""))
         self.rule_enabled_check.setChecked(bool(rule.get("enabled", True)))
         self.button_enabled_check.setChecked(bool(rule.get("button_enabled", True)))
         self.wake_word_input.setText(rule.get("wake_word", ""))
@@ -972,6 +986,8 @@ class AiSettingsDialog(QDialog):
             return
         rules[row] = {
             "id": rules[row].get("id", ""),
+            "folder_id": self.folder_combo.currentData() or "",
+            "sort_order": rules[row].get("sort_order", (row + 1) * 10),
             "enabled": self.rule_enabled_check.isChecked(),
             "button_enabled": self.button_enabled_check.isChecked(),
             "wake_word": self.wake_word_input.text().strip(),
@@ -985,12 +1001,33 @@ class AiSettingsDialog(QDialog):
         index = combo.findData(value)
         combo.setCurrentIndex(index if index >= 0 else 0)
 
+    def refresh_folder_combo(self, selected_id=""):
+        self.folder_combo.clear()
+        self.folder_combo.addItem("未分类", "")
+        for folder in self.settings.get("rule_folders", []):
+            self.folder_combo.addItem(folder.get("name", "文件夹"), folder.get("id", ""))
+        self.set_combo_value(self.folder_combo, selected_id)
+
+    def add_rule_folder(self):
+        name, ok = QInputDialog.getText(self, "新建文件夹", "文件夹名称")
+        name = name.strip()
+        if not ok or not name:
+            return
+        import uuid
+        folders = self.settings.setdefault("rule_folders", [])
+        folder = {"id": "folder-" + uuid.uuid4().hex[:12], "name": name[:24], "sort_order": (len(folders) + 1) * 10}
+        folders.append(folder)
+        self.refresh_folder_combo(folder["id"])
+        self.refresh_rule_list()
+
     def add_rule(self):
         self.save_current_rule()
         rules = self.settings.setdefault("rules", [])
         rules.append({
             "enabled": True,
             "button_enabled": True,
+            "folder_id": self.folder_combo.currentData() or "",
+            "sort_order": (len(rules) + 1) * 10,
             "wake_word": f"唤醒词{len(rules) + 1}",
             "button_label": f"按钮{len(rules) + 1}",
             "match_mode": "contains",
@@ -1025,6 +1062,7 @@ class AiSettingsDialog(QDialog):
                 "model": self.model_input.text().strip(),
             },
             "rules": self.settings.get("rules", []),
+            "rule_folders": self.settings.get("rule_folders", []),
             "behavior": {
                 "show_processing_title": self.show_title_check.isChecked(),
                 "save_ai_history": self.save_history_check.isChecked(),
@@ -1047,6 +1085,7 @@ class VoiceInputWindow(QMainWindow):
         self.is_connected = False
         self.auto_input_mode = True
         self.received_images = []
+        self.pending_videos = []
         self.history_records = self.load_history()
         self.history_expanded = False
         self.ai_settings = load_ai_settings()
@@ -1423,6 +1462,7 @@ class VoiceInputWindow(QMainWindow):
             text = data.get('text', '')
             ai_rule_id = data.get('ai_rule_id', '')
             images = data.get('images') or []
+            self.pending_videos = data.get('videos') or []
             image_delay_ms = self.normalize_image_delay_ms(
                 data.get('image_delay_ms', DEFAULT_IMAGE_SEND_DELAY_MS)
             )
@@ -1433,12 +1473,14 @@ class VoiceInputWindow(QMainWindow):
             action, text = data.split('|', 1)
             ai_rule_id = ''
             images = []
+            self.pending_videos = []
             image_delay_ms = DEFAULT_IMAGE_SEND_DELAY_MS
             image_paste_mode = IMAGE_PASTE_MODE_FAST
         else:
             action, text = 'paste', data
             ai_rule_id = ''
             images = []
+            self.pending_videos = []
             image_delay_ms = DEFAULT_IMAGE_SEND_DELAY_MS
             image_paste_mode = IMAGE_PASTE_MODE_FAST
         
@@ -1541,6 +1583,8 @@ class VoiceInputWindow(QMainWindow):
 
         if self.auto_input_mode:
             try:
+                pasted_videos = self.paste_video_files(self.pending_videos)
+                self.pending_videos = []
                 pasted_images = 0
                 clean_images = self.clone_image_payloads(images)
                 total_images = len(clean_images)
@@ -1576,7 +1620,7 @@ class VoiceInputWindow(QMainWindow):
                 )
                 
                 if action == 'send':
-                    if pasted_images:
+                    if pasted_images or pasted_videos:
                         delay_seconds = image_delay_ms // 1000
                         self.setWindowTitle(f"等待图片上传 {delay_seconds} 秒")
                         QTimer.singleShot(
@@ -1645,6 +1689,21 @@ class VoiceInputWindow(QMainWindow):
         pyautogui.hotkey('ctrl', 'v')
         time.sleep(delay_seconds)
         return True
+
+    def paste_video_files(self, videos):
+        """Place uploaded videos on the Windows clipboard as real files."""
+        paths = [video.get('path') for video in (videos or [])
+                 if isinstance(video, dict) and os.path.isfile(video.get('path', ''))]
+        if not paths:
+            return 0
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(path) for path in paths])
+        QApplication.clipboard().setMimeData(mime)
+        QApplication.processEvents()
+        pyautogui.hotkey('ctrl', 'v')
+        time.sleep(1.5)
+        log_client_event(f"pasted video files={len(paths)}")
+        return len(paths)
     
     def image_to_qimage(self, image):
         """把手机端 data URL 图片转成 QImage。"""

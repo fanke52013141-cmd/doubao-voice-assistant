@@ -914,8 +914,8 @@
         <div class="input-section">
             <textarea id="textInput" placeholder="在此输入或语音输入..."></textarea>
             <div class="image-row">
-                <input id="imageInput" type="file" accept="image/*" multiple hidden>
-                <button id="imageBtn" class="btn-image btn-image-picker" type="button" disabled aria-label="图片"><svg class="ui-icon" aria-hidden="true"><use href="#icon-image"></use></svg><span>图片</span><span id="imageCountBadge" class="image-count-badge" hidden>0</span></button>
+                <input id="imageInput" type="file" accept="image/*,video/mp4,video/webm,video/quicktime,video/x-m4v" multiple hidden>
+                <button id="imageBtn" class="btn-image btn-image-picker" type="button" disabled aria-label="附件"><svg class="ui-icon" aria-hidden="true"><use href="#icon-image"></use></svg><span>附件</span><span id="imageCountBadge" class="image-count-badge" hidden>0</span></button>
                 <button id="historyBtn" class="btn-image btn-history" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-clock"></use></svg><span>记录</span></button>
                 <div class="status"><span class="dot disconnected"></span><span class="text">连接中...</span></div>
                 <div id="heightControl" class="height-control" aria-label="输入框高度">
@@ -1028,11 +1028,12 @@
         const TEXTAREA_HEIGHT_STEP = 10;
         const HISTORY_DB_NAME = 'voice-sync-history';
         const HISTORY_STORE_NAME = 'records';
-        const HISTORY_LIMIT = 20;
+        const HISTORY_LIMIT = 100;
         const AUTOSAVE_ID = 'autosave-draft';
         const MAX_SOCKET_PAYLOAD_CHARS = 45 * 1024 * 1024;
 
         let selectedImages = [];
+        let selectedVideos = [];
         let loadingImages = false;
         let imageDelaySeconds = DEFAULT_IMAGE_DELAY_SECONDS;
         let imagePasteMode = loadImagePasteMode();
@@ -1044,6 +1045,8 @@
         let historyReady = false;
         let lastAutosaveSignature = '';
         let aiButtons = [];
+        let aiFolders = [];
+        let activeAiFolderId = '';
         let selectedAiRuleId = '';
 
         let _initHeight = 0;
@@ -1404,7 +1407,29 @@
             normalButton.onclick = () => selectAiRule('');
             aiModeSection.appendChild(normalButton);
 
-            aiButtons.forEach(rule => {
+            if (!activeAiFolderId && aiFolders.length) {
+                aiFolders.forEach(folder => {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'ai-mode-button';
+                    button.textContent = `${folder.name} · ${folder.buttons.length}`;
+                    button.onclick = () => { activeAiFolderId = folder.id; renderAiButtons(); };
+                    aiModeSection.appendChild(button);
+                });
+            }
+
+            if (activeAiFolderId) {
+                const back = document.createElement('button');
+                back.type = 'button';
+                back.className = 'ai-mode-button';
+                back.textContent = '← 返回';
+                back.onclick = () => { activeAiFolderId = ''; renderAiButtons(); };
+                aiModeSection.appendChild(back);
+            }
+
+            const activeFolder = aiFolders.find(folder => folder.id === activeAiFolderId);
+            const visibleButtons = activeFolder ? activeFolder.buttons : aiButtons.filter(rule => !rule.folder_id);
+            visibleButtons.forEach(rule => {
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = `ai-mode-button ${selectedAiRuleId === rule.id ? 'active' : ''}`.trim();
@@ -1421,6 +1446,9 @@
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
                 aiButtons = Array.isArray(data.buttons) ? data.buttons : [];
+                aiFolders = Array.isArray(data.folders) ? data.folders : [];
+                const groupedIds = new Set(aiFolders.flatMap(folder => folder.buttons.map(rule => rule.id)));
+                aiButtons = aiButtons.map(rule => ({ ...rule, folder_id: groupedIds.has(rule.id) ? 'grouped' : '' }));
                 if (selectedAiRuleId && !aiButtons.some(rule => rule.id === selectedAiRuleId)) {
                     selectedAiRuleId = '';
                 }
@@ -1439,6 +1467,16 @@
                 reader.onerror = reject;
                 reader.readAsDataURL(file);
             });
+        }
+
+        async function uploadVideo(file) {
+            if (file.size > 200 * 1024 * 1024) throw new Error('视频不能超过 200MB');
+            const form = new FormData();
+            form.append('file', file, file.name);
+            const response = await fetch('/api/uploads', { method: 'POST', body: form });
+            const data = await response.json();
+            if (!response.ok || !data.ok) throw new Error(data.error || '视频上传失败');
+            selectedVideos.push(data.upload);
         }
 
         function compressImage(dataUrl) {
@@ -1483,15 +1521,16 @@
 
         function renderImages() {
             imageGrid.innerHTML = '';
-            imageCountBadge.hidden = selectedImages.length === 0;
-            imageCountBadge.textContent = selectedImages.length > 99 ? '99+' : String(selectedImages.length);
-            imagePanelTitle.textContent = selectedImages.length ? `已选图片 ${selectedImages.length}` : '已选图片';
-            imageClearBtn.disabled = !socket.connected || loadingImages || selectedImages.length === 0;
+            const attachmentCount = selectedImages.length + selectedVideos.length;
+            imageCountBadge.hidden = attachmentCount === 0;
+            imageCountBadge.textContent = attachmentCount > 99 ? '99+' : String(attachmentCount);
+            imagePanelTitle.textContent = attachmentCount ? `已选附件 ${attachmentCount}` : '已选附件';
+            imageClearBtn.disabled = !socket.connected || loadingImages || attachmentCount === 0;
 
-            if (!selectedImages.length) {
+            if (!attachmentCount) {
                 const empty = document.createElement('div');
                 empty.className = 'image-empty';
-                empty.textContent = '还没有选择图片';
+                empty.textContent = '还没有选择附件';
                 imageGrid.appendChild(empty);
                 updateDelayVisibility();
                 keepControlsVisible();
@@ -1522,6 +1561,13 @@
                 thumb.appendChild(remove);
                 imageGrid.appendChild(thumb);
             });
+            selectedVideos.forEach((video, index) => {
+                const item = document.createElement('div');
+                item.className = 'image-empty';
+                item.textContent = `视频 · ${video.name || '未命名'} · ${Math.ceil((video.size || 0) / 1024 / 1024)}MB`;
+                item.onclick = () => { selectedVideos.splice(index, 1); renderImages(); };
+                imageGrid.appendChild(item);
+            });
             updateDelayVisibility();
             keepControlsVisible();
         }
@@ -1542,7 +1588,7 @@
         }
 
         function handleImageButtonClick() {
-            if (selectedImages.length) {
+            if (selectedImages.length || selectedVideos.length) {
                 openImagePanel();
                 return;
             }
@@ -1550,8 +1596,9 @@
         }
 
         function clearImages() {
-            if (!selectedImages.length) return;
+            if (!selectedImages.length && !selectedVideos.length) return;
             selectedImages = [];
+            selectedVideos = [];
             renderImages();
             saveAutosaveRecord();
             closeImagePreview();
@@ -1758,7 +1805,7 @@
             if (event.target === historyOverlay) closeHistoryPanel();
         };
         imageInput.onchange = async () => {
-            const files = Array.from(imageInput.files || []).filter(file => file.type.startsWith('image/'));
+            const files = Array.from(imageInput.files || []).filter(file => file.type.startsWith('image/') || file.type.startsWith('video/'));
             if (!files.length) {
                 imageInput.value = '';
                 return;
@@ -1767,6 +1814,10 @@
             updateControls();
             try {
                 for (const file of files) {
+                    if (file.type.startsWith('video/')) {
+                        await uploadVideo(file);
+                        continue;
+                    }
                     const image = await fileToImagePayload(file);
                     const nextImages = selectedImages.concat([image]);
                     if (!assertImagesFitTransport(nextImages)) {
@@ -1791,10 +1842,10 @@
 
         function sendText(action) {
             const text = syncDraftText();
-            if ((text.trim() || selectedImages.length) && socket.connected && !loadingImages) {
+            if ((text.trim() || selectedImages.length || selectedVideos.length) && socket.connected && !loadingImages) {
                 const images = selectedImages.map(({ name, type, data }) => ({ name, type, data }));
                 if (!assertImagesFitTransport(images)) return;
-                const payload = { text, action, images, image_paste_mode: imagePasteMode };
+                const payload = { text, action, images, videos: selectedVideos, image_paste_mode: imagePasteMode };
                 if (selectedAiRuleId) {
                     payload.ai_rule_id = selectedAiRuleId;
                 }
@@ -1806,6 +1857,7 @@
                 textInput.value = '';
                 draftText = '';
                 selectedImages = [];
+                selectedVideos = [];
                 renderImages();
                 closeImagePanel();
                 closeImagePreview();
@@ -1846,7 +1898,7 @@
             try {
                 historyDb = await openHistoryDb();
                 historyReady = true;
-                setInterval(saveAutosaveRecord, 500);
+                setInterval(saveAutosaveRecord, 1000);
             } catch (err) {
                 console.warn('记录功能不可用', err);
                 historyBtn.disabled = true;

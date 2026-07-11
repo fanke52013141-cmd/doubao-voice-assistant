@@ -124,12 +124,14 @@ AI_PROVIDER_PRESETS = {
 
 
 DEFAULT_AI_SETTINGS = {
+    "schema_version": 2,
     "api": {
         "provider": "openai",
         "base_url": "https://api.openai.com/v1",
         "api_key": "",
         "model": "",
     },
+    "rule_folders": [],
     "rules": [
         {
             "enabled": True,
@@ -230,6 +232,31 @@ def normalize_ai_settings(settings):
         settings = {}
 
     normalized = copy_settings(DEFAULT_AI_SETTINGS)
+    normalized["schema_version"] = 2
+
+    folders = settings.get("rule_folders")
+    normalized_folders = []
+    seen_folder_ids = set()
+    if isinstance(folders, list):
+        for index, folder in enumerate(folders):
+            if not isinstance(folder, dict):
+                continue
+            name = str(folder.get("name", "")).strip()[:24]
+            folder_id = str(folder.get("id", "")).strip()
+            if not name:
+                continue
+            if not re.fullmatch(r"[A-Za-z0-9_-]{6,64}", folder_id):
+                source = f"{index}:{name}"
+                folder_id = "folder-" + hashlib.sha1(source.encode("utf-8")).hexdigest()[:12]
+            if folder_id in seen_folder_ids:
+                continue
+            seen_folder_ids.add(folder_id)
+            normalized_folders.append({
+                "id": folder_id,
+                "name": name,
+                "sort_order": int(folder.get("sort_order", (index + 1) * 10)),
+            })
+    normalized["rule_folders"] = sorted(normalized_folders, key=lambda item: item["sort_order"])
 
     api = settings.get("api") if isinstance(settings.get("api"), dict) else {}
     provider = str(api.get("provider", "")).strip()
@@ -272,6 +299,9 @@ def normalize_ai_settings(settings):
                 {
                     "enabled": bool(rule.get("enabled", True)),
                     "id": make_rule_id(rule, index),
+                    "folder_id": str(rule.get("folder_id", "")).strip()
+                    if str(rule.get("folder_id", "")).strip() in seen_folder_ids else "",
+                    "sort_order": int(rule.get("sort_order", (index + 1) * 10)),
                     "wake_word": wake_word,
                     "match_mode": match_mode,
                     "button_enabled": bool(rule.get("button_enabled", True)),
@@ -304,6 +334,23 @@ def public_ai_buttons(settings):
             }
         )
     return buttons
+
+
+def public_ai_button_groups(settings):
+    """Return phone-safe folder/button metadata while retaining old flat clients."""
+    normalized = normalize_ai_settings(settings)
+    buttons = public_ai_buttons(normalized)
+    rule_by_id = {rule.get("id"): rule for rule in normalized.get("rules", [])}
+    grouped = {folder["id"]: {**folder, "buttons": []} for folder in normalized.get("rule_folders", [])}
+    uncategorized = []
+    for button in buttons:
+        folder_id = rule_by_id.get(button["id"], {}).get("folder_id", "")
+        if folder_id in grouped:
+            grouped[folder_id]["buttons"].append(button)
+        else:
+            uncategorized.append(button)
+    folders = [folder for folder in grouped.values() if folder["buttons"]]
+    return {"version": 2, "folders": folders, "uncategorized": uncategorized, "buttons": buttons}
 
 
 def load_ai_settings():
