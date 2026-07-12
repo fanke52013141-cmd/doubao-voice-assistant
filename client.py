@@ -1,4 +1,4 @@
-"""
+﻿"""
 语音输入助手 - 桌面客户端
 PyQt5 实现的接收端窗口，默认置顶，精简布局
 支持自动输入到光标所在位置
@@ -53,7 +53,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTextEdit, QPushButton, QLabel, QDialog, QScrollArea, QMenu, QFrame,
     QLineEdit, QCheckBox, QComboBox, QListWidget, QFormLayout,
-    QDialogButtonBox, QGroupBox, QFileDialog, QInputDialog
+    QDialogButtonBox, QGroupBox, QFileDialog, QInputDialog, QStackedWidget
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QMimeData, QByteArray, QSize, QUrl
 from PyQt5.QtGui import QIcon, QImage, QPixmap, QFont, QFontMetrics, QPainter
@@ -100,17 +100,17 @@ STARTUP_VALUE_NAME = "VoiceInputAssistant"
 STARTUP_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 UI_COLORS = {
-    "brand": "#5b4bff",
-    "brand_hover": "#4f46e5",
-    "brand_soft": "#f1efff",
-    "accent": "#ff671d",
-    "success": "#19b866",
-    "success_soft": "#ecfdf3",
-    "ink": "#11182d",
-    "muted": "#788197",
-    "line": "#e1e5ef",
+    "brand": "#7c3aed",
+    "brand_hover": "#6d28d9",
+    "brand_soft": "#f5f3ff",
+    "accent": "#f97316",
+    "success": "#16a34a",
+    "success_soft": "#dcfce7",
+    "ink": "#0f172a",
+    "muted": "#64748b",
+    "line": "#e2e8f0",
     "surface": "#ffffff",
-    "page": "#f7f8fc",
+    "page": "#f5f7fa",
 }
 
 LUCIDE_ICON_PATHS = {
@@ -302,6 +302,41 @@ def startup_command_line():
     return subprocess.list2cmdline(launch_command())
 
 
+def spawn_delayed_restart(command, working_dir, delay_seconds=2.5):
+    """Relaunch after the current launcher releases its single-instance lock."""
+    if getattr(sys, "frozen", False):
+        quoted = subprocess.list2cmdline(command)
+        helper = f'ping 127.0.0.1 -n 4 > nul & start "" {quoted}'
+        return subprocess.Popen(
+            [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/s", "/c", helper],
+            cwd=working_dir,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            | getattr(subprocess, "DETACHED_PROCESS", 0),
+        )
+
+    pythonw = bundled_pythonw_executable(working_dir)
+    helper_code = (
+        "import json,subprocess,sys,time;"
+        "time.sleep(float(sys.argv[1]));"
+        "cmd=json.loads(sys.argv[2]);"
+        "subprocess.Popen(cmd,cwd=sys.argv[3],stdin=subprocess.DEVNULL,"
+        "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,"
+        "creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))"
+    )
+    return subprocess.Popen(
+        [pythonw, "-c", helper_code, str(delay_seconds), json.dumps(command), working_dir],
+        cwd=working_dir,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        | getattr(subprocess, "DETACHED_PROCESS", 0),
+    )
+
+
 def startup_registry_value():
     if os.name != "nt":
         return ""
@@ -463,10 +498,10 @@ class ImageThumbLabel(QLabel):
         menu = QMenu(self)
         menu.setStyleSheet("""
             QMenu {
-                background: #fffdf7;
+                background: #ffffff;
                 color: #111827;
-                border: 2px solid #111827;
-                border-radius: 6px;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
                 font-size: 18px;
                 padding: 6px;
             }
@@ -476,8 +511,8 @@ class ImageThumbLabel(QLabel):
                 background: transparent;
             }
             QMenu::item:selected {
-                color: #111827;
-                background: #fef3c7;
+                color: #7c3aed;
+                background: #f5f3ff;
             }
         """)
         copy_action = menu.addAction("复制这张图片")
@@ -497,6 +532,7 @@ class AiSettingsDialog(QDialog):
         self.current_rule_index = -1
         self.test_worker = None
         self._checkmark_svg_path = self._ensure_checkmark_svg()
+        self._chevron_svg_path = self._ensure_chevron_svg()
         self.init_ui()
         self.load_api_fields()
         self.refresh_rule_list()
@@ -520,6 +556,22 @@ class AiSettingsDialog(QDialog):
         except Exception:
             return ""
 
+    def _ensure_chevron_svg(self):
+        """Write a chevron-down SVG to a temp file for QSS image: url(...)."""
+        import tempfile
+        svg_content = (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" '
+            'fill="none" stroke="#64748b" stroke-width="2" '
+            'stroke-linecap="round" stroke-linejoin="round">'
+            '<polyline points="4 6 8 10 12 6"/></svg>'
+        )
+        try:
+            tmp = os.path.join(tempfile.gettempdir(), "va_chevron.svg")
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(svg_content)
+            return tmp.replace("\\", "/")
+        except Exception:
+            return ""
     def control_height(self):
         return max(38, self.font_size + 20)
 
@@ -529,26 +581,52 @@ class AiSettingsDialog(QDialog):
         icon_path = app_icon_path()
         if icon_path:
             self.setWindowIcon(QIcon(icon_path))
-        self.resize(max(1450, self.font_size * 58), max(980, self.font_size * 38))
-        self.setMinimumSize(max(1100, self.font_size * 44), max(760, self.font_size * 30))
+        self.resize(max(1100, self.font_size * 44), max(720, self.font_size * 30))
+        self.setMinimumSize(max(960, self.font_size * 38), max(660, self.font_size * 26))
         self.setSizeGripEnabled(True)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
 
-        self.font_decrease_btn = QPushButton("A-")
-        self.font_decrease_btn.setObjectName("compactButton")
-        self.font_decrease_btn.clicked.connect(lambda: self.change_font_size(-1))
-        self.font_size_label = QLabel("")
-        self.font_size_label.setAlignment(Qt.AlignCenter)
-        self.font_increase_btn = QPushButton("A+")
-        self.font_increase_btn.setObjectName("compactButton")
-        self.font_increase_btn.clicked.connect(lambda: self.change_font_size(1))
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
 
-        api_group = QGroupBox("AI 接入配置")
-        api_form = QFormLayout(api_group)
+        middle_layout = QHBoxLayout()
+        middle_layout.setContentsMargins(0, 0, 0, 0)
+        middle_layout.setSpacing(0)
+
+        # --- Sidebar ---
+        self.sidebar = QFrame()
+        self.sidebar.setObjectName("sidebar")
+        self.sidebar.setFixedWidth(200)
+        sidebar_layout = QVBoxLayout(self.sidebar)
+        sidebar_layout.setContentsMargins(12, 20, 12, 20)
+        sidebar_layout.setSpacing(8)
+
+        self.nav_buttons = []
+        for text, index in (("AI 接入配置", 0), ("运行偏好", 1), ("唤醒规则", 2)):
+            btn = self.create_nav_button(text, index)
+            self.nav_buttons.append(btn)
+            sidebar_layout.addWidget(btn)
+        sidebar_layout.addStretch()
+        middle_layout.addWidget(self.sidebar)
+
+        # --- Stacked content ---
+        self.content_stack = QStackedWidget()
+
+        # Page 0: AI 接入配置
+        page_api = QWidget()
+        page_api_layout = QVBoxLayout(page_api)
+        page_api_layout.setContentsMargins(24, 20, 24, 20)
+        page_api_layout.setSpacing(10)
+
+        title_api = QLabel("AI 接入配置")
+        title_api.setObjectName("pageTitle")
+        page_api_layout.addWidget(title_api)
+
+        api_form = QFormLayout()
         api_form.setLabelAlignment(Qt.AlignRight)
-        api_form.setVerticalSpacing(8)
+        api_form.setVerticalSpacing(10)
+        api_form.setHorizontalSpacing(12)
+        api_form.setContentsMargins(0, 0, 0, 0)
         self.provider_combo = QComboBox()
         self.provider_combo.setMinimumHeight(self.control_height())
         for provider_id, preset in AI_PROVIDER_PRESETS.items():
@@ -567,12 +645,14 @@ class AiSettingsDialog(QDialog):
         self.model_input.setPlaceholderText("模型名")
         for input_widget in (self.base_url_input, self.api_key_input, self.model_input):
             input_widget.setMinimumHeight(self.control_height())
-        api_form.addRow("Provider", self.provider_combo)
-        api_form.addRow("Base URL", self.base_url_input)
-        api_form.addRow("API Key", self.api_key_input)
-        api_form.addRow("Model", self.model_input)
+        api_form.addRow("服务商", self.provider_combo)
+        api_form.addRow("接入地址", self.base_url_input)
+        api_form.addRow("API 密钥", self.api_key_input)
+        api_form.addRow("模型", self.model_input)
+        page_api_layout.addLayout(api_form)
 
         api_actions = QHBoxLayout()
+        api_actions.setSpacing(10)
         self.test_api_btn = QPushButton("测试连接")
         self.test_api_btn.setObjectName("primaryButton")
         self.test_api_btn.setIcon(lucide_icon("link", "#ffffff", 18))
@@ -585,43 +665,74 @@ class AiSettingsDialog(QDialog):
         api_actions.addWidget(self.test_api_btn)
         api_actions.addWidget(self.open_log_btn)
         api_actions.addWidget(self.test_status_label, 1)
-        api_form.addRow("", api_actions)
-        layout.addWidget(api_group)
+        page_api_layout.addLayout(api_actions)
+        page_api_layout.addStretch()
+        self.content_stack.addWidget(page_api)
 
-        behavior_group = QGroupBox("运行偏好")
-        behavior_layout = QHBoxLayout(behavior_group)
+        # Page 1: 运行偏好
+        page_behavior = QWidget()
+        page_behavior_layout = QVBoxLayout(page_behavior)
+        page_behavior_layout.setContentsMargins(24, 20, 24, 20)
+        page_behavior_layout.setSpacing(14)
+
+        title_behavior = QLabel("运行偏好")
+        title_behavior.setObjectName("pageTitle")
+        page_behavior_layout.addWidget(title_behavior)
+
         self.show_title_check = QCheckBox("AI 处理中显示窗口标题")
         self.save_history_check = QCheckBox("记录原始文本和 AI 结果")
         self.startup_check = QCheckBox("开机自动启动")
-        
-        font_container = QWidget()
-        font_layout = QHBoxLayout(font_container)
-        font_layout.setContentsMargins(0, 0, 0, 0)
-        font_layout.setSpacing(6)
-        
+        page_behavior_layout.addWidget(self.show_title_check)
+        page_behavior_layout.addWidget(self.save_history_check)
+        page_behavior_layout.addWidget(self.startup_check)
+
+        self.font_decrease_btn = QPushButton("A-")
+        self.font_decrease_btn.setObjectName("compactButton")
+        self.font_decrease_btn.clicked.connect(lambda: self.change_font_size(-1))
+        self.font_size_label = QLabel("")
+        self.font_size_label.setAlignment(Qt.AlignCenter)
+        self.font_increase_btn = QPushButton("A+")
+        self.font_increase_btn.setObjectName("compactButton")
+        self.font_increase_btn.clicked.connect(lambda: self.change_font_size(1))
+
+        font_row = QHBoxLayout()
+        font_row.setSpacing(8)
         font_title = QLabel("字体大小")
         font_title.setObjectName("fontTitle")
-        font_layout.addWidget(font_title)
-        font_layout.addWidget(self.font_decrease_btn)
-        font_layout.addWidget(self.font_size_label)
-        font_layout.addWidget(self.font_increase_btn)
-        
-        behavior_layout.addWidget(self.show_title_check, 1)
-        behavior_layout.addWidget(self.save_history_check, 1)
-        behavior_layout.addWidget(self.startup_check, 1)
-        behavior_layout.addWidget(font_container, 1)
-        layout.addWidget(behavior_group)
+        font_row.addWidget(font_title)
+        font_row.addWidget(self.font_decrease_btn)
+        font_row.addWidget(self.font_size_label)
+        font_row.addWidget(self.font_increase_btn)
+        font_row.addStretch()
+        page_behavior_layout.addLayout(font_row)
+        page_behavior_layout.addStretch()
+        self.content_stack.addWidget(page_behavior)
 
-        rules_group = QGroupBox("唤醒规则")
-        rules_layout = QHBoxLayout(rules_group)
-        rules_layout.setSpacing(12)
+        # Page 2: 唤醒规则 — 两栏：左栏（规则列表上 + 设置表单下）| 右栏（系统提示词）
+        page_rules = QWidget()
+        page_rules_layout = QVBoxLayout(page_rules)
+        page_rules_layout.setContentsMargins(24, 20, 24, 20)
+        page_rules_layout.setSpacing(10)
 
-        rules_left = QVBoxLayout()
+        title_rules = QLabel("唤醒规则")
+        title_rules.setObjectName("pageTitle")
+        page_rules_layout.addWidget(title_rules)
+
+        rules_content = QHBoxLayout()
+        rules_content.setSpacing(12)
+
+        # ── 左栏：规则列表（上）+ 设置表单（下），上下结构 ──
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(10)
+
+        # 规则列表（可滚动）
         self.rule_list = QListWidget()
-        self.rule_list.setMinimumWidth(260)
         self.rule_list.currentRowChanged.connect(self.on_rule_selection_changed)
-        rules_left.addWidget(self.rule_list, 1)
+        left_layout.addWidget(self.rule_list, 3)
 
+        # 新增/删除按钮
         rule_buttons = QHBoxLayout()
         add_rule_btn = QPushButton("新增")
         add_rule_btn.setIcon(lucide_icon("plus", UI_COLORS["ink"], 18))
@@ -631,19 +742,20 @@ class AiSettingsDialog(QDialog):
         delete_rule_btn.clicked.connect(self.delete_rule)
         rule_buttons.addWidget(add_rule_btn)
         rule_buttons.addWidget(delete_rule_btn)
-        rules_left.addLayout(rule_buttons)
-        rules_layout.addLayout(rules_left, 1)
+        rule_buttons.addStretch()
+        left_layout.addLayout(rule_buttons)
 
-        rule_form = QFormLayout()
-        rule_form.setLabelAlignment(Qt.AlignRight)
-        rule_form.setVerticalSpacing(8)
+        # 启用 + 显示为手机按钮（同一行）
         self.rule_enabled_check = QCheckBox("启用")
         self.button_enabled_check = QCheckBox("显示为手机按钮")
-        rule_checks_layout = QHBoxLayout()
-        rule_checks_layout.addWidget(self.rule_enabled_check)
-        rule_checks_layout.addWidget(self.button_enabled_check)
-        rule_checks_layout.addStretch()
-        
+        checks_row = QHBoxLayout()
+        checks_row.setSpacing(16)
+        checks_row.addWidget(self.rule_enabled_check)
+        checks_row.addWidget(self.button_enabled_check)
+        checks_row.addStretch()
+        left_layout.addLayout(checks_row)
+
+        # 表单字段
         self.wake_word_input = QLineEdit()
         self.wake_word_input.setMinimumHeight(self.control_height())
         self.button_label_input = QLineEdit()
@@ -653,9 +765,6 @@ class AiSettingsDialog(QDialog):
         self.folder_combo.setMinimumHeight(self.control_height())
         add_folder_btn = QPushButton("新建文件夹")
         add_folder_btn.clicked.connect(self.add_rule_folder)
-        folder_row = QHBoxLayout()
-        folder_row.addWidget(self.folder_combo, 1)
-        folder_row.addWidget(add_folder_btn)
         self.match_mode_combo = QComboBox()
         self.match_mode_combo.setMinimumHeight(self.control_height())
         self.match_mode_combo.addItem("包含唤醒词", "contains")
@@ -665,37 +774,84 @@ class AiSettingsDialog(QDialog):
         self.output_action_combo.addItem("跟随手机按钮", "follow")
         self.output_action_combo.addItem("强制传递", "paste")
         self.output_action_combo.addItem("强制发送", "send")
-        self.system_prompt_input = QTextEdit()
-        self.system_prompt_input.setFixedHeight(self.prompt_input_height())
-        self.system_prompt_input.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.system_prompt_input.setPlaceholderText("系统提示词")
-        rule_form.addRow("", rule_checks_layout)
+
+        rule_form = QFormLayout()
+        rule_form.setLabelAlignment(Qt.AlignRight)
+        rule_form.setVerticalSpacing(8)
+        rule_form.setHorizontalSpacing(12)
+        rule_form.setContentsMargins(0, 0, 0, 0)
         rule_form.addRow("唤醒词", self.wake_word_input)
         rule_form.addRow("按钮名称", self.button_label_input)
+        folder_row = QHBoxLayout()
+        folder_row.setSpacing(6)
+        folder_row.addWidget(self.folder_combo, 1)
+        folder_row.addWidget(add_folder_btn)
         rule_form.addRow("所属文件夹", folder_row)
         rule_form.addRow("匹配方式", self.match_mode_combo)
         rule_form.addRow("输出动作", self.output_action_combo)
-        rule_form.addRow("系统提示词", self.system_prompt_input)
-        rules_layout.addLayout(rule_form, 2)
-        layout.addWidget(rules_group, 1)
+        left_layout.addLayout(rule_form, 2)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Save).setText("保存")
-        buttons.button(QDialogButtonBox.Cancel).setText("取消")
-        buttons.button(QDialogButtonBox.Save).setObjectName("primaryButton")
-        buttons.accepted.connect(self.accept_settings)
-        buttons.rejected.connect(self.reject)
-        footer = QHBoxLayout()
+        rules_content.addWidget(left_widget, 2)
+
+        # ── 右栏：系统提示词（更宽，占满高度）──
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(6)
+        prompt_label = QLabel("系统提示词")
+        prompt_label.setObjectName("fieldLabel")
+        right_layout.addWidget(prompt_label)
+        self.system_prompt_input = QTextEdit()
+        self.system_prompt_input.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.system_prompt_input.setPlaceholderText("系统提示词")
+        right_layout.addWidget(self.system_prompt_input, 1)
+        rules_content.addWidget(right_widget, 3)
+
+        page_rules_layout.addLayout(rules_content, 1)
+        self.content_stack.addWidget(page_rules)
+
+        middle_layout.addWidget(self.content_stack, 1)
+        outer_layout.addLayout(middle_layout, 1)
+
+        # --- Footer ---
+        footer_widget = QFrame()
+        footer_widget.setObjectName("footer")
+        footer = QHBoxLayout(footer_widget)
+        footer.setContentsMargins(20, 12, 20, 12)
         self.restore_defaults_btn = QPushButton("恢复默认设置")
         self.restore_defaults_btn.setIcon(lucide_icon("rotate", UI_COLORS["ink"], 18))
         self.restore_defaults_btn.clicked.connect(self.restore_default_settings)
+        self.save_btn = QPushButton("保存")
+        self.save_btn.setObjectName("primaryButton")
+        self.save_btn.setIcon(lucide_icon("check", "#ffffff", 18))
+        self.save_btn.clicked.connect(self.accept_settings)
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.clicked.connect(self.reject)
         footer.addWidget(self.restore_defaults_btn)
         footer.addStretch()
-        footer.addWidget(buttons)
-        layout.addLayout(footer)
+        footer.addWidget(self.cancel_btn)
+        footer.addWidget(self.save_btn)
+        outer_layout.addWidget(footer_widget)
+
+        self.on_nav_clicked(0)
 
         self.apply_dialog_style()
         self.update_font_size_label()
+
+    def create_nav_button(self, text, page_index):
+        btn = QPushButton(text)
+        btn.setObjectName("navBtn")
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setProperty("active", False)
+        btn.clicked.connect(lambda checked, idx=page_index: self.on_nav_clicked(idx))
+        return btn
+
+    def on_nav_clicked(self, page_index):
+        self.content_stack.setCurrentIndex(page_index)
+        for i, btn in enumerate(self.nav_buttons):
+            btn.setProperty("active", i == page_index)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
 
     def apply_dialog_style(self):
         self.provider_combo.setMinimumHeight(self.control_height())
@@ -705,28 +861,27 @@ class AiSettingsDialog(QDialog):
             input_widget.setMinimumHeight(self.control_height())
         for combo in (self.folder_combo, self.match_mode_combo, self.output_action_combo):
             combo.setMinimumHeight(self.control_height())
-        self.system_prompt_input.setFixedHeight(self.prompt_input_height())
-        self.resize(max(1450, self.font_size * 58), max(980, self.font_size * 38))
-        self.setMinimumSize(max(1100, self.font_size * 44), max(760, self.font_size * 30))
+        self.resize(max(1100, self.font_size * 44), max(720, self.font_size * 30))
+        self.setMinimumSize(max(960, self.font_size * 38), max(660, self.font_size * 26))
         self.setStyleSheet(f"""
             QDialog, QWidget {{
                 background: {UI_COLORS['page']};
                 color: {UI_COLORS['ink']};
-                font-family: 'Microsoft YaHei UI';
+                font-family: 'Inter', 'Noto Sans SC', 'Microsoft YaHei UI', sans-serif;
                 font-size: {self.font_size}px;
             }}
             QLabel, QCheckBox {{ background: transparent; }}
             QGroupBox {{
                 background: {UI_COLORS['surface']};
                 border: 1px solid {UI_COLORS['line']};
-                border-radius: 14px;
+                border-radius: 12px;
                 margin-top: 16px;
-                padding: 16px 14px 14px;
+                padding: 12px 12px 10px;
                 font-weight: 800;
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
-                left: 16px;
+                left: 12px;
                 padding: 0 8px;
                 color: {UI_COLORS['ink']};
             }}
@@ -744,9 +899,9 @@ class AiSettingsDialog(QDialog):
             }}
             QComboBox::drop-down {{ border: none; width: 28px; }}
             QListWidget::item {{
-                min-height: {self.font_size + 14}px;
-                padding: 6px 8px;
-                border-radius: 7px;
+                min-height: {self.font_size + 10}px;
+                padding: 5px 8px;
+                border-radius: 6px;
             }}
             QListWidget::item:selected {{
                 color: {UI_COLORS['brand']};
@@ -757,7 +912,7 @@ class AiSettingsDialog(QDialog):
                 width: 18px;
                 height: 18px;
                 border: 2px solid #cbd5e1;
-                border-radius: 5px;
+                border-radius: 4px;
                 background-color: #ffffff;
             }}
             QCheckBox::indicator:hover {{
@@ -780,9 +935,9 @@ class AiSettingsDialog(QDialog):
                 background: #ffffff;
                 color: {UI_COLORS['ink']};
                 border: 1px solid {UI_COLORS['line']};
-                border-radius: 9px;
-                min-height: 34px;
-                padding: 6px 14px;
+                border-radius: 8px;
+                min-height: 32px;
+                padding: 5px 12px;
                 font-size: {self.font_size}px;
                 font-weight: 700;
             }}
@@ -812,17 +967,18 @@ class AiSettingsDialog(QDialog):
             QComboBox::drop-down {{
                 subcontrol-origin: padding;
                 subcontrol-position: right center;
-                width: 28px;
+                width: 32px;
                 border: none;
+                border-left: 1px solid {UI_COLORS['line']};
                 background: transparent;
             }}
+            QComboBox::drop-down:hover {{
+                background: {UI_COLORS['brand_soft']};
+            }}
             QComboBox::down-arrow {{
-                image: none;
-                width: 0;
-                height: 0;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 6px solid {UI_COLORS['muted']};
+                image: url({self._chevron_svg_path});
+                width: 16px;
+                height: 16px;
             }}
             QComboBox QAbstractItemView {{
                 background: #ffffff;
@@ -842,6 +998,47 @@ class AiSettingsDialog(QDialog):
             QComboBox QAbstractItemView::item:hover {{
                 background: {UI_COLORS['brand_soft']};
                 color: {UI_COLORS['brand']};
+            }}
+            QFrame#sidebar {{
+                background: #f8fafc;
+                border-right: 1px solid {UI_COLORS['line']};
+            }}
+            QFrame#footer {{
+                background: {UI_COLORS['surface']};
+                border-top: 1px solid {UI_COLORS['line']};
+            }}
+            QLabel#pageTitle {{
+                font-size: {self.font_size + 2}px;
+                font-weight: 700;
+                color: {UI_COLORS['ink']};
+                padding-bottom: 8px;
+                border-bottom: 1px solid {UI_COLORS['line']};
+                margin-bottom: 4px;
+            }}
+            QLabel#fieldLabel {{
+                font-size: {self.font_size}px;
+                font-weight: 700;
+                color: {UI_COLORS['ink']};
+            }}
+            QPushButton#navBtn {{
+                text-align: left;
+                padding: 12px 16px;
+                border: none;
+                border-radius: 10px;
+                background: transparent;
+                color: {UI_COLORS['muted']};
+                font-size: {self.font_size}px;
+                font-weight: 500;
+                min-height: 24px;
+            }}
+            QPushButton#navBtn:hover {{
+                background: #f1f5f9;
+                color: {UI_COLORS['ink']};
+            }}
+            QPushButton#navBtn[active="true"] {{
+                background: {UI_COLORS['brand_soft']};
+                color: {UI_COLORS['brand']};
+                font-weight: 700;
             }}
         """)
 
@@ -935,11 +1132,8 @@ class AiSettingsDialog(QDialog):
         self.rule_list.clear()
         folder_names = {folder.get("id"): folder.get("name") for folder in self.settings.get("rule_folders", [])}
         for rule in self.settings.get("rules", []):
-            enabled = "☑" if rule.get("enabled") else "☐"
-            button = "按钮" if rule.get("button_enabled") else "无按钮"
-            mode = "包含" if rule.get("match_mode") == "contains" else "开头"
             folder = folder_names.get(rule.get("folder_id"), "未分类")
-            self.rule_list.addItem(f"{folder} / {enabled} {rule.get('wake_word', '')} · {button} · {mode}")
+            self.rule_list.addItem(f"{folder} / {rule.get('wake_word', '')}")
         self.rule_list.blockSignals(False)
 
     def on_rule_selection_changed(self, row):
@@ -1149,7 +1343,7 @@ class VoiceInputWindow(QMainWindow):
         self.ip_label.setStyleSheet("""
             QLabel {
                 color: #111827;
-                font-family: 'Microsoft YaHei UI';
+                font-family: 'Inter', 'Noto Sans SC', 'Microsoft YaHei UI', sans-serif;
                 font-size: 28px;
                 font-weight: 700;
                 border: none;
@@ -1181,9 +1375,9 @@ class VoiceInputWindow(QMainWindow):
         self.text_display.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.text_display.setStyleSheet("""
             QTextEdit {
-                background: #fffdf7;
-                border: 2px solid #111827;
-                border-radius: 10px;
+                background: #ffffff;
+                border: 1px solid #7c3aed;
+                border-radius: 12px;
                 padding: 8px 12px;
                 font-size: 22px;
                 color: #334155;
@@ -1198,13 +1392,13 @@ class VoiceInputWindow(QMainWindow):
         self.restart_btn.setStyleSheet("""
             QPushButton {
                 background: #fff7ed;
-                color: #111827;
-                border: 2px solid #111827;
-                border-radius: 12px;
+                color: #9a3412;
+                border: 1px solid #fed7aa;
+                border-radius: 10px;
                 font-size: 21px;
                 font-weight: 700;
             }
-            QPushButton:hover { background: #fed7aa; }
+            QPushButton:hover { background: #ffedd5; }
             QPushButton:disabled { color: #9ca3af; background: #f3f4f6; }
         """)
         control_bar.addWidget(self.restart_btn)
@@ -1223,14 +1417,14 @@ class VoiceInputWindow(QMainWindow):
         self.history_btn.clicked.connect(self.toggle_history_panel)
         self.history_btn.setStyleSheet("""
             QPushButton {
-                background: #ecfccb;
-                color: #111827;
-                border: 2px solid #111827;
-                border-radius: 12px;
+                background: #dcfce7;
+                color: #14532d;
+                border: 1px solid #86efac;
+                border-radius: 10px;
                 font-size: 21px;
                 font-weight: 700;
             }
-            QPushButton:hover { background: #d9f99d; }
+            QPushButton:hover { background: #bbf7d0; }
         """)
         control_bar.addWidget(self.history_btn)
 
@@ -1240,14 +1434,14 @@ class VoiceInputWindow(QMainWindow):
         self.settings_btn.clicked.connect(self.open_ai_settings)
         self.settings_btn.setStyleSheet("""
             QPushButton {
-                background: #e0f2fe;
-                color: #111827;
-                border: 2px solid #111827;
-                border-radius: 12px;
+                background: #eff6ff;
+                color: #1e40af;
+                border: 1px solid #93c5fd;
+                border-radius: 10px;
                 font-size: 21px;
                 font-weight: 700;
             }
-            QPushButton:hover { background: #bae6fd; }
+            QPushButton:hover { background: #dbeafe; }
         """)
         control_bar.addWidget(self.settings_btn)
         layout.addLayout(control_bar)
@@ -1266,8 +1460,8 @@ class VoiceInputWindow(QMainWindow):
         self.history_scroll.setStyleSheet("""
             QScrollArea {
                 background: #ffffff;
-                border: 1px solid #e1e5ef;
-                border-radius: 14px;
+                border: 1px solid #e2e8f0;
+                border-radius: 12px;
             }
             QScrollBar:vertical {
                 background: transparent;
@@ -1291,12 +1485,12 @@ class VoiceInputWindow(QMainWindow):
             QWidget#mainSurface {{
                 background: {UI_COLORS['page']};
                 color: {UI_COLORS['ink']};
-                font-family: 'Microsoft YaHei UI';
+                font-family: 'Inter', 'Noto Sans SC', 'Microsoft YaHei UI', sans-serif;
             }}
             QFrame#addressCard {{
                 background: #ffffff;
-                border: 2px solid #cbd5e1;
-                border-radius: 14px;
+                border: 1px solid #e2e8f0;
+                border-radius: 12px;
             }}
             QLabel#statusText {{
                 color: {UI_COLORS['success']};
@@ -1304,14 +1498,14 @@ class VoiceInputWindow(QMainWindow):
                 border: none;
                 font-weight: 800;
             }}
-            QFrame#addressDivider {{ color: #cbd5e1; background: #cbd5e1; max-width: 1px; }}
+            QFrame#addressDivider {{ color: #e2e8f0; background: #e2e8f0; max-width: 1px; }}
             QPushButton#iconButton {{
                 min-width: 46px;
                 max-width: 46px;
                 min-height: 42px;
                 max-height: 42px;
                 background: #fbfcff;
-                border: 2px solid #cbd5e1;
+                border: 1px solid #e2e8f0;
                 border-radius: 10px;
             }}
             QPushButton#iconButton:hover {{ background: {UI_COLORS['brand_soft']}; }}
@@ -1336,17 +1530,17 @@ class VoiceInputWindow(QMainWindow):
     def expanded_window_height(self):
         return max(720, self.collapsed_window_height() + 570)
 
-    def button_style(self, background, hover, border_color="#cbd5e1", text_color=None, disabled=False):
+    def button_style(self, background, hover, border_color="#e2e8f0", text_color=None, disabled=False):
         disabled_style = ""
         if disabled:
-            disabled_style = "QPushButton:disabled { color: #9ca3af; background: #f3f4f8; border-color: #cbd5e1; }"
+            disabled_style = "QPushButton:disabled { color: #9ca3af; background: #f3f4f8; border-color: #e2e8f0; }"
         tc = text_color if text_color else UI_COLORS['ink']
         return f"""
             QPushButton {{
                 background: {background};
                 color: {tc};
-                border: 2px solid {border_color};
-                border-radius: 12px;
+                border: 1px solid {border_color};
+                border-radius: 10px;
                 font-size: {self.font_px(2)}px;
                 font-weight: 700;
                 padding: 0 12px;
@@ -1359,7 +1553,7 @@ class VoiceInputWindow(QMainWindow):
         """
 
     def apply_connection_style(self):
-        color = "#22c55e" if self.is_connected else "#ef4444"
+        color = "#16a34a" if self.is_connected else "#ef4444"
         self.status_dot.setStyleSheet(
             f"color: {color}; font-size: {self.font_px(2)}px; border: none;"
         )
@@ -1382,7 +1576,7 @@ class VoiceInputWindow(QMainWindow):
         self.ip_label.setStyleSheet(f"""
             QLabel {{
                 color: #334155;
-                font-family: 'Microsoft YaHei UI';
+                font-family: 'Inter', 'Noto Sans SC', 'Microsoft YaHei UI', sans-serif;
                 font-size: {self.font_px(1)}px;
                 font-weight: 600;
                 border: none;
@@ -1394,7 +1588,7 @@ class VoiceInputWindow(QMainWindow):
         self.text_display.setStyleSheet(f"""
             QTextEdit {{
                 background: #ffffff;
-                border: 2px solid #5b4bff;
+                border: 1px solid #7c3aed;
                 border-radius: 12px;
                 padding: 8px 12px;
                 font-size: {self.font_px(2)}px;
@@ -1411,13 +1605,13 @@ class VoiceInputWindow(QMainWindow):
         """)
 
         self.restart_btn.setFixedSize(button_width, button_height)
-        self.restart_btn.setStyleSheet(self.button_style("#fff7ed", "#ffedd5", border_color="#fdba74", text_color="#9a3412", disabled=True))
+        self.restart_btn.setStyleSheet(self.button_style("#fff7ed", "#ffedd5", border_color="#fed7aa", text_color="#9a3412", disabled=True))
         self.pin_btn.setFixedSize(pin_width, button_height)
         self.update_pin_style()
         self.history_btn.setFixedSize(button_width, button_height)
-        self.history_btn.setStyleSheet(self.button_style(UI_COLORS["success_soft"], "#dcfce7", border_color="#86efac", text_color="#14532d"))
+        self.history_btn.setStyleSheet(self.button_style(UI_COLORS["success_soft"], "#bbf7d0", border_color="#86efac", text_color="#14532d"))
         self.settings_btn.setFixedSize(button_width, button_height)
-        self.settings_btn.setStyleSheet(self.button_style("#f0f9ff", "#e0f2fe", border_color="#7dd3fc", text_color="#0369a1"))
+        self.settings_btn.setStyleSheet(self.button_style("#eff6ff", "#dbeafe", border_color="#93c5fd", text_color="#1e40af"))
 
         self.history_scroll.setFixedHeight(max(520, self.font_px(0) * 15))
         window_height = self.expanded_height if self.history_expanded else self.collapsed_height
@@ -1428,10 +1622,10 @@ class VoiceInputWindow(QMainWindow):
     def update_pin_style(self):
         """更新置顶按钮样式"""
         if self.is_pinned:
-            self.pin_btn.setStyleSheet(self.button_style("#f5f3ff", "#e0e7ff", border_color="#c7d2fe", text_color="#3730a3"))
+            self.pin_btn.setStyleSheet(self.button_style("#f5f3ff", "#ede9fe", border_color="#c4b5fd", text_color="#5b21b6"))
             self.pin_btn.setText("取消置顶")
         else:
-            self.pin_btn.setStyleSheet(self.button_style("#f5f3ff", "#e0e7ff", border_color="#c7d2fe", text_color="#3730a3"))
+            self.pin_btn.setStyleSheet(self.button_style("#f5f3ff", "#ede9fe", border_color="#c4b5fd", text_color="#5b21b6"))
             self.pin_btn.setText("置顶")
     
     def init_socket(self):
@@ -1855,7 +2049,7 @@ class VoiceInputWindow(QMainWindow):
             QMenu {
                 background: #ffffff;
                 color: #111827;
-                border: 1px solid #e1e5ef;
+                border: 1px solid #e2e8f0;
                 border-radius: 8px;
                 font-size: 18px;
                 padding: 6px;
@@ -1867,7 +2061,7 @@ class VoiceInputWindow(QMainWindow):
             }
             QMenu::item:selected {
                 color: #111827;
-                background: #f1efff;
+                background: #f5f3ff;
             }
         """)
         copy_action = menu.addAction("复制这张图片")
@@ -1984,8 +2178,8 @@ class VoiceInputWindow(QMainWindow):
         item.setStyleSheet("""
             QFrame#historyCard {
                 background: #ffffff;
-                border: 1px solid #e1e5ef;
-                border-radius: 14px;
+                border: 1px solid #e2e8f0;
+                border-radius: 12px;
             }
         """)
         layout = QVBoxLayout(item)
@@ -2046,7 +2240,7 @@ class VoiceInputWindow(QMainWindow):
                 thumb.setStyleSheet("""
                     QLabel {
                         background: #ffffff;
-                        border: 1px solid #e1e5ef;
+                        border: 1px solid #e2e8f0;
                         border-radius: 8px;
                     }
                 """)
@@ -2229,7 +2423,7 @@ class VoiceInputWindow(QMainWindow):
             self.refresh_history_panel()
     
     def restart_app(self):
-        """重新启动完整助手进程。"""
+        """Exit first, then let a detached helper start a clean instance."""
         base_dir = launch_working_dir()
         command = launch_command()
         
@@ -2238,15 +2432,8 @@ class VoiceInputWindow(QMainWindow):
         QApplication.processEvents()
         
         try:
-            subprocess.Popen(
-                command,
-                cwd=base_dir,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            QTimer.singleShot(250, QApplication.instance().quit)
+            spawn_delayed_restart(command, base_dir)
+            QTimer.singleShot(50, QApplication.instance().quit)
         except Exception as e:
             self.restart_btn.setEnabled(True)
             self.restart_btn.setText("重启")

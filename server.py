@@ -1,4 +1,4 @@
-"""
+﻿"""
 Voice Sync 服务器
 实现手机端与电脑端的实时文本同步
 """
@@ -69,7 +69,7 @@ def sender():
 @app.route('/favicon.ico')
 def favicon():
     """浏览器标签页图标"""
-    icon_path = resource_path("voice-assistant-v2.ico")
+    icon_path = resource_path("assets/app-icon.ico")
     if not os.path.exists(icon_path):
         icon_path = resource_path("语音输入助手.ico")
     if not os.path.exists(icon_path):
