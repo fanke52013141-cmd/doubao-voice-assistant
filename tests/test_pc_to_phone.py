@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from server import app, socketio
+from server import PHONE_ACCESS_TOKEN, app, redact_access_log_text, socketio
+from transfer_config import PHONE_ACCESS_COOKIE
 
 
 PNG_BYTES = (
@@ -60,7 +61,9 @@ class PcToPhoneTests(unittest.TestCase):
         download.close()
 
     def test_publish_emits_realtime_pc_message(self):
-        phone = socketio.test_client(app)
+        phone_http = app.test_client()
+        phone_http.set_cookie(PHONE_ACCESS_COOKIE, PHONE_ACCESS_TOKEN)
+        phone = socketio.test_client(app, flask_test_client=phone_http)
         try:
             phone.get_received()
             response = self.post_message()
@@ -69,7 +72,8 @@ class PcToPhoneTests(unittest.TestCase):
             self.assertEqual(len(events), 1)
             self.assertEqual(events[0]["args"][0]["text"], "电脑发送的测试文字")
         finally:
-            phone.disconnect()
+            if phone.is_connected():
+                phone.disconnect()
 
     def test_publish_endpoint_rejects_lan_callers(self):
         response = self.client.post(
@@ -78,6 +82,55 @@ class PcToPhoneTests(unittest.TestCase):
             environ_base={"REMOTE_ADDR": "192.168.1.50"},
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_phone_history_requires_pairing_token_for_lan_callers(self):
+        denied = self.client.get(
+            "/api/messages",
+            environ_base={"REMOTE_ADDR": "192.168.1.50"},
+        )
+        self.assertEqual(denied.status_code, 403)
+
+        paired = self.client.get(
+            f"/?token={PHONE_ACCESS_TOKEN}",
+            environ_base={"REMOTE_ADDR": "192.168.1.50"},
+        )
+        self.assertEqual(paired.status_code, 200)
+        self.assertIn("voice_assistant_access=", paired.headers.get("Set-Cookie", ""))
+
+        allowed = self.client.get(
+            "/api/messages",
+            environ_base={"REMOTE_ADDR": "192.168.1.50"},
+        )
+        self.assertEqual(allowed.status_code, 200)
+
+    def test_phone_page_disables_browser_cache(self):
+        response = self.client.get("/")
+        self.assertIn("no-store", response.headers.get("Cache-Control", ""))
+
+    def test_pairing_token_is_redacted_from_access_logs(self):
+        request_line = f'GET /?token={PHONE_ACCESS_TOKEN} HTTP/1.1'
+        redacted = redact_access_log_text(request_line)
+        self.assertNotIn(PHONE_ACCESS_TOKEN, redacted)
+        self.assertIn("token=[redacted]", redacted)
+        self.assertEqual(app.config["SECRET_KEY"], PHONE_ACCESS_TOKEN)
+
+    def test_cleanup_failure_does_not_break_committed_attachment(self):
+        with patch("server.cleanup_messages", side_effect=RuntimeError("forced cleanup failure")):
+            response = self.client.post(
+                "/api/pc/messages",
+                data={
+                    "text": "cleanup failure",
+                    "files": (io.BytesIO(b"file-data"), "report.txt", "text/plain"),
+                },
+                content_type="multipart/form-data",
+                environ_base={"REMOTE_ADDR": "127.0.0.1"},
+            )
+        self.assertEqual(response.status_code, 200)
+        attachment = response.get_json()["message"]["attachments"][0]
+        download = self.client.get(attachment["download_url"])
+        self.assertEqual(download.status_code, 200)
+        self.assertEqual(download.data, b"file-data")
+        download.close()
 
     def test_common_document_can_be_transferred_and_forces_download(self):
         document_bytes = b"PK\x03\x04fake-docx-content"
@@ -134,7 +187,10 @@ class PcToPhoneTests(unittest.TestCase):
         self.assertIn("fileDownload.textContent = '下载'", page)
         self.assertNotIn("下载视频", page)
         self.assertIn("-webkit-touch-callout: default", page)
-        self.assertIn("serverRecordIds", page)
+        self.assertIn("receivePcMessageBatch", page)
+        self.assertNotIn("serverRecordIds", page)
+        self.assertIn("MAX_DIRECT_SHARE_BYTES", page)
+        self.assertIn("AI未配置", page)
 
 
 if __name__ == "__main__":

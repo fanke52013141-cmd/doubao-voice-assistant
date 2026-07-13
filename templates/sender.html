@@ -1154,6 +1154,11 @@
         const HISTORY_LIMIT = 100;
         const AUTOSAVE_ID = 'autosave-draft';
         const MAX_SOCKET_PAYLOAD_CHARS = 45 * 1024 * 1024;
+        const MAX_DIRECT_SHARE_BYTES = 50 * 1024 * 1024;
+
+        if (new URLSearchParams(window.location.search).has('token')) {
+            window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
+        }
 
         let selectedImages = [];
         let selectedVideos = [];
@@ -1169,6 +1174,7 @@
         let lastAutosaveSignature = '';
         let aiButtons = [];
         let aiFolders = [];
+        let aiStatusMessage = '';
         let activeAiFolderId = '';
         let selectedAiRuleId = '';
         let pendingPcMessages = [];
@@ -1501,6 +1507,20 @@
             });
         }
 
+        async function fillPcTextInput(text) {
+            if (!text) return;
+            await preserveDraftBeforePcFill(text);
+            textInput.value = text;
+            draftText = text;
+            await deleteHistoryRecord(AUTOSAVE_ID);
+            lastAutosaveSignature = recordSignature(text, []);
+            try {
+                textInput.focus({ preventScroll: true });
+            } catch (err) {
+                textInput.focus();
+            }
+        }
+
         async function receivePcMessage(message, fillInput = true) {
             if (!message || !message.id) return;
             if (!historyReady) {
@@ -1525,35 +1545,30 @@
                 updatedAt: createdAt,
             });
             if (fillInput && !existing && text) {
-                await preserveDraftBeforePcFill(text);
-                textInput.value = text;
-                draftText = text;
-                await deleteHistoryRecord(AUTOSAVE_ID);
-                lastAutosaveSignature = recordSignature(text, []);
-                try {
-                    textInput.focus({ preventScroll: true });
-                } catch (err) {
-                    textInput.focus();
-                }
+                await fillPcTextInput(text);
             }
             if (!historyOverlay.hidden) await renderHistory();
+            return { isNew: !existing, text };
+        }
+
+        async function receivePcMessageBatch(items) {
+            let latestUnseenText = '';
+            for (const item of items) {
+                const result = await receivePcMessage(item.message, false);
+                if (item.fillInput !== false && result && result.isNew && result.text) {
+                    latestUnseenText = result.text;
+                }
+            }
+            if (latestUnseenText) await fillPcTextInput(latestUnseenText);
         }
 
         async function syncPcMessages() {
+            if (!historyReady) return;
             try {
                 const response = await fetch('/api/messages?after=0&limit=100', { cache: 'no-store' });
                 const data = await response.json();
                 if (!response.ok || !data.ok || !Array.isArray(data.messages)) return;
-                for (const message of data.messages) {
-                    await receivePcMessage(message, true);
-                }
-                const serverRecordIds = new Set(data.messages.map(message => `pc-${message.id}`));
-                const localRecords = await getHistoryRecords();
-                for (const record of localRecords) {
-                    if (record.kind === 'received' && !serverRecordIds.has(record.id)) {
-                        await deleteHistoryRecord(record.id);
-                    }
-                }
+                await receivePcMessageBatch(data.messages.map(message => ({ message, fillInput: true })));
                 if (!historyOverlay.hidden) await renderHistory();
             } catch (err) {
                 console.warn('电脑消息同步失败', err);
@@ -1608,7 +1623,13 @@
             aiModeSection.innerHTML = '';
             if (!aiButtons.length) {
                 selectedAiRuleId = '';
-                aiModeSection.hidden = true;
+                aiModeSection.hidden = false;
+                const status = document.createElement('button');
+                status.type = 'button';
+                status.className = 'ai-mode-button';
+                status.textContent = aiStatusMessage || 'AI未配置或没有启用按钮';
+                status.disabled = true;
+                aiModeSection.appendChild(status);
                 return;
             }
             aiModeSection.hidden = false;
@@ -1660,6 +1681,7 @@
                 const data = await response.json();
                 aiButtons = Array.isArray(data.buttons) ? data.buttons : [];
                 aiFolders = Array.isArray(data.folders) ? data.folders : [];
+                aiStatusMessage = String(data.status_message || '');
                 const groupedIds = new Set(aiFolders.flatMap(folder => folder.buttons.map(rule => rule.id)));
                 aiButtons = aiButtons.map(rule => ({ ...rule, folder_id: groupedIds.has(rule.id) ? 'grouped' : '' }));
                 if (selectedAiRuleId && !aiButtons.some(rule => rule.id === selectedAiRuleId)) {
@@ -1668,6 +1690,7 @@
             } catch (err) {
                 console.warn('AI按钮加载失败', err);
                 aiButtons = [];
+                aiStatusMessage = 'AI按钮加载失败，请检查电脑连接';
                 selectedAiRuleId = '';
             }
             renderAiButtons();
@@ -1889,6 +1912,14 @@
             button.disabled = true;
             button.textContent = '准备中';
             try {
+                if (!navigator.share || attachment.size > MAX_DIRECT_SHARE_BYTES) {
+                    triggerAttachmentDownload(attachment);
+                    const reason = attachment.size > MAX_DIRECT_SHARE_BYTES
+                        ? '文件较大，为避免手机卡顿，已改为下载。'
+                        : '当前浏览器不能直接打开分享面板，文件已开始下载。';
+                    alert(`${reason}下载后可在微信中选择文件发送。`);
+                    return;
+                }
                 const response = await fetch(attachment.download_url, { cache: 'no-store' });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const blob = await response.blob();
@@ -1896,7 +1927,7 @@
                     type: attachment.type || blob.type || 'application/octet-stream',
                 });
                 const shareData = { files: [file], title: '转发文件' };
-                const canShareFiles = navigator.share && (!navigator.canShare || navigator.canShare(shareData));
+                const canShareFiles = !navigator.canShare || navigator.canShare(shareData);
                 if (canShareFiles) {
                     await navigator.share(shareData);
                 } else {
@@ -2271,9 +2302,7 @@
                 historyReady = true;
                 const queued = pendingPcMessages;
                 pendingPcMessages = [];
-                for (const item of queued) {
-                    await receivePcMessage(item.message, item.fillInput);
-                }
+                await receivePcMessageBatch(queued);
                 await syncPcMessages();
                 setInterval(saveAutosaveRecord, 1000);
             } catch (err) {

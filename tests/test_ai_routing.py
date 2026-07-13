@@ -10,10 +10,12 @@ from ai_assistant import (
     find_wake_rule,
     normalize_ai_settings,
     public_ai_buttons,
+    public_ai_button_groups,
     strip_thinking_text,
 )
 from client import DEFAULT_IMAGE_SEND_DELAY_MS, VoiceInputWindow
-from server import app, socketio
+from server import PHONE_ACCESS_TOKEN, app, socketio
+from transfer_config import PHONE_ACCESS_COOKIE
 
 
 def sample_settings():
@@ -115,6 +117,12 @@ class AiRoutingTests(unittest.TestCase):
         hidden = public_ai_buttons({"api": {"model": "glm-5.1"}, "rules": settings["rules"]})
         self.assertEqual(hidden, [])
 
+        status = public_ai_button_groups(
+            {"api": {"model": "glm-5.1"}, "rules": settings["rules"]}
+        )
+        self.assertFalse(status["configured"])
+        self.assertIn("AI未配置", status["status_message"])
+
     def test_button_route_then_keyword_then_plain(self):
         settings = sample_settings()
         button_id = public_ai_buttons(settings)[0]["id"]
@@ -155,8 +163,12 @@ class AiRoutingTests(unittest.TestCase):
         self.assertIn(("plain", "paste", "ordinary text", "ordinary text"), fake.calls)
 
     def test_server_forwards_ai_rule_id(self):
-        sender = socketio.test_client(app)
-        receiver = socketio.test_client(app)
+        sender_http = app.test_client()
+        receiver_http = app.test_client()
+        sender_http.set_cookie(PHONE_ACCESS_COOKIE, PHONE_ACCESS_TOKEN)
+        receiver_http.set_cookie(PHONE_ACCESS_COOKIE, PHONE_ACCESS_TOKEN)
+        sender = socketio.test_client(app, flask_test_client=sender_http)
+        receiver = socketio.test_client(app, flask_test_client=receiver_http)
         try:
             sender.emit(
                 "send_text",
@@ -168,8 +180,10 @@ class AiRoutingTests(unittest.TestCase):
             self.assertEqual(data["ai_rule_id"], "rule-test")
             self.assertEqual(data["text"], "hello")
         finally:
-            sender.disconnect()
-            receiver.disconnect()
+            if sender.is_connected():
+                sender.disconnect()
+            if receiver.is_connected():
+                receiver.disconnect()
 
     def test_direct_output_without_json_content_extraction(self):
         with patch(

@@ -77,6 +77,12 @@ from ai_assistant import (
     test_openai_compatible,
 )
 from network_utils import get_local_ip
+from transfer_config import (
+    BLOCKED_TRANSFER_EXTENSIONS,
+    MAX_TRANSFER_FILE_BYTES,
+    MAX_TRANSFER_SELECTION_BYTES,
+    phone_access_url,
+)
 
 # 配置 pyautogui
 pyautogui.FAILSAFE = False  # 禁用安全角落
@@ -92,10 +98,6 @@ IMAGE_PASTE_MODE_FAST = "fast"
 IMAGE_PASTE_MODE_SAFE = "safe"
 IMAGE_TEXT_PASTE_DELAY_MS = 1000
 TEXT_PASTE_SETTLE_SECONDS = 0.05
-BLOCKED_TRANSFER_EXTENSIONS = {
-    ".exe", ".com", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".jse", ".msi",
-    ".scr", ".dll", ".sys", ".reg", ".lnk", ".url", ".hta",
-}
 WINDOW_TITLE = "语音输入助手"
 APP_USER_MODEL_ID = "DoubaoVoiceAssistant.VoiceInputAssistant"
 HISTORY_LIMIT = 20
@@ -1369,9 +1371,7 @@ class DoubleClickButton(QPushButton):
         if self._skip_release_after_double_click:
             self._skip_release_after_double_click = False
             return
-        app = QApplication.instance()
-        interval = app.doubleClickInterval() if app else 400
-        self._single_click_timer.start(interval)
+        self._single_click_timer.start(self.click_interval())
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -1381,6 +1381,22 @@ class DoubleClickButton(QPushButton):
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            if self._single_click_timer.isActive():
+                self._single_click_timer.stop()
+                self.doubleClicked.emit()
+            else:
+                self._single_click_timer.start(self.click_interval())
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    @staticmethod
+    def click_interval():
+        app = QApplication.instance()
+        return app.doubleClickInterval() if app else 400
 
 
 class VoiceInputWindow(QMainWindow):
@@ -1453,6 +1469,7 @@ class VoiceInputWindow(QMainWindow):
         # 显示手机端访问地址
         local_ip = get_local_ip()
         self.access_url = f"http://{local_ip}:56789"
+        self.secure_access_url = phone_access_url(local_ip)
         self.ip_label = QLabel(f"地址：{self.access_url}")
         self.ip_label.setMinimumWidth(780)
         self.ip_label.setStyleSheet("""
@@ -1464,7 +1481,7 @@ class VoiceInputWindow(QMainWindow):
                 border: none;
             }
         """)
-        self.ip_label.setToolTip("点击复制手机访问地址")
+        self.ip_label.setToolTip("点击复制包含安全配对信息的手机访问地址")
         self.ip_label.setCursor(Qt.PointingHandCursor)
         self.ip_label.mousePressEvent = lambda e: self.copy_ip(local_ip)
         address_bar.addWidget(self.ip_label, 1)
@@ -1473,7 +1490,7 @@ class VoiceInputWindow(QMainWindow):
         self.copy_address_btn.setObjectName("iconButton")
         self.copy_address_btn.setIcon(lucide_icon("copy", UI_COLORS["brand"], 22))
         self.copy_address_btn.setIconSize(QSize(22, 22))
-        self.copy_address_btn.setToolTip("复制手机访问地址")
+        self.copy_address_btn.setToolTip("复制包含安全配对信息的手机访问地址")
         self.copy_address_btn.clicked.connect(lambda: self.copy_ip(local_ip))
         address_bar.addWidget(self.copy_address_btn)
         layout.addWidget(self.address_card)
@@ -1807,12 +1824,12 @@ class VoiceInputWindow(QMainWindow):
                 self.text_display.setText(f"出于安全原因不能传输此类程序文件：{os.path.basename(path)}")
                 return
             size = os.path.getsize(path)
-            if size > 200 * 1024 * 1024:
+            if size > MAX_TRANSFER_FILE_BYTES:
                 self.text_display.setText(f"单个附件不能超过 200MB：{os.path.basename(path)}")
                 return
             total_size += size
             valid.append(path)
-        if total_size > 210 * 1024 * 1024:
+        if total_size > MAX_TRANSFER_SELECTION_BYTES:
             self.text_display.setText("一次发送的附件总量不能超过 210MB，请分批发送。")
             return
         self.selected_pc_files = valid
@@ -2748,10 +2765,10 @@ class VoiceInputWindow(QMainWindow):
     
     def copy_ip(self, ip):
         """复制IP地址"""
-        url = f"http://{ip}:56789"
+        url = getattr(self, "secure_access_url", phone_access_url(ip))
         QApplication.clipboard().setText(url)
         self.ip_label.setText("已复制!")
-        QTimer.singleShot(1000, lambda: self.ip_label.setText(f"地址: {url}"))
+        QTimer.singleShot(1000, lambda: self.ip_label.setText(f"地址：{self.access_url}"))
     
     def closeEvent(self, event):
         """关闭事件"""

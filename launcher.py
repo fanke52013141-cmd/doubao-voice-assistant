@@ -107,45 +107,6 @@ def is_port_open(port):
         return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
-def listening_pids(port):
-    try:
-        output = subprocess.check_output(
-            ["netstat", "-ano"],
-            cwd=BASE_DIR,
-            creationflags=CREATE_NO_WINDOW,
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception:
-        return set()
-
-    pids = set()
-    needle = f":{port}"
-    for line in output.splitlines():
-        if needle not in line or "LISTENING" not in line:
-            continue
-        parts = line.split()
-        if parts and parts[-1].isdigit():
-            pids.add(parts[-1])
-    return pids
-
-
-def cleanup_port(port):
-    """Stop a stale server from an earlier launch."""
-    current_pid = str(os.getpid())
-    for pid in listening_pids(port):
-        if pid == current_pid:
-            continue
-        subprocess.run(
-            ["taskkill", "/F", "/PID", pid],
-            cwd=BASE_DIR,
-            creationflags=CREATE_NO_WINDOW,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-
-
 def run_hidden(args):
     return subprocess.run(
         args,
@@ -283,7 +244,6 @@ def main():
         firewall_warning = ensure_firewall_rule()
         if firewall_warning:
             os.environ["VOICE_ASSISTANT_FIREWALL_WARNING"] = firewall_warning
-        cleanup_port(PORT)
         server_process, server_log = start_server()
         if not wait_for_server(server_process, PORT):
             show_error(

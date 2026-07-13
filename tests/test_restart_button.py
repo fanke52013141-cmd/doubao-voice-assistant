@@ -45,6 +45,27 @@ class RestartButtonTests(unittest.TestCase):
 
         self.assertEqual(events, ["double"])
 
+    def test_single_keyboard_activation_only_emits_hint_signal(self):
+        events = []
+        self.button.singleClicked.connect(lambda: events.append("single"))
+        self.button.doubleClicked.connect(lambda: events.append("double"))
+
+        QTest.keyClick(self.button, Qt.Key_Return)
+        QTest.qWait(self.app.doubleClickInterval() + 50)
+
+        self.assertEqual(events, ["single"])
+
+    def test_double_keyboard_activation_emits_restart_signal(self):
+        events = []
+        self.button.singleClicked.connect(lambda: events.append("single"))
+        self.button.doubleClicked.connect(lambda: events.append("double"))
+
+        QTest.keyClick(self.button, Qt.Key_Return)
+        QTest.keyClick(self.button, Qt.Key_Return)
+        QTest.qWait(self.app.doubleClickInterval() + 50)
+
+        self.assertEqual(events, ["double"])
+
 
 if __name__ == "__main__":
     unittest.main()

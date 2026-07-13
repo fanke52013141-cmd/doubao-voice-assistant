@@ -11,6 +11,4 @@ dist/
 venv/
 env/
 .env
-dist/
-build/
 installer-output/
