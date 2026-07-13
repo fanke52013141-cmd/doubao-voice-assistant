@@ -552,6 +552,130 @@
         .history-action:disabled {
             opacity: 0.5;
         }
+        .history-attachments {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+        .history-attachments.single {
+            grid-template-columns: minmax(0, 1fr);
+        }
+        .history-attachment {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-width: 0;
+            padding: 0;
+            background: transparent;
+            border: none;
+        }
+        .history-attachment img,
+        .history-attachment video {
+            display: block;
+            width: 100%;
+            max-height: 300px;
+            object-fit: contain;
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            -webkit-touch-callout: default;
+            -webkit-user-select: auto;
+            user-select: auto;
+        }
+        .history-attachment.file-row {
+            grid-column: 1 / -1;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 10px;
+            min-height: 58px;
+            padding: 8px 9px;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+        }
+        .history-file-icon {
+            display: flex;
+            flex: 0 0 42px;
+            align-items: center;
+            justify-content: center;
+            width: 42px;
+            height: 42px;
+            color: #64748b;
+            background: #f1f5f9;
+            border-radius: 10px;
+        }
+        .history-file-icon svg {
+            width: 25px;
+            height: 25px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .history-file-icon.spreadsheet { color: #16834a; background: #eaf8ef; }
+        .history-file-icon.document { color: #2563eb; background: #eff6ff; }
+        .history-file-icon.pdf { color: #dc2626; background: #fef2f2; }
+        .history-file-icon.presentation { color: #ea580c; background: #fff7ed; }
+        .history-file-icon.archive { color: #b7791f; background: #fffbeb; }
+        .history-file-icon.audio { color: #9333ea; background: #faf5ff; }
+        .history-file-icon.code { color: #475569; background: #f1f5f9; }
+        .history-file-name {
+            min-width: 0;
+            flex: 1 1 auto;
+            overflow: hidden;
+            color: #1e293b;
+            font-size: 0.9rem;
+            font-weight: 700;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .history-file-share {
+            display: flex;
+            flex: 0 0 38px;
+            align-items: center;
+            justify-content: center;
+            width: 38px;
+            height: 38px;
+            padding: 0;
+            color: #2563eb;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 9px;
+        }
+        .history-file-share svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .history-attachment.file-row .history-download {
+            flex: 0 0 auto;
+            min-width: 62px;
+            min-height: 38px;
+            padding: 0 12px;
+        }
+        .history-attachment-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .history-download,
+        .history-share {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 36px;
+            color: #6d28d9;
+            background: #f5f3ff;
+            border: 1px solid #ddd6fe;
+            border-radius: 8px;
+            font-size: 0.84rem;
+            font-weight: 800;
+            text-decoration: none;
+        }
+        .history-share {
+            color: #2563eb;
+            background: #eff6ff;
+            border-color: #bfdbfe;
+        }
+        .history-share:disabled { opacity: 0.55; }
 
         @media (max-width: 380px) {
             .input-section { padding-left: 10px; padding-right: 10px; }
@@ -821,6 +945,8 @@
         .history-badge::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--brand); }
         .history-badge.sent { color: #16a34a; }
         .history-badge.sent::before { background: #16a34a; }
+        .history-badge.received { color: #2563eb; }
+        .history-badge.received::before { background: #2563eb; }
         .history-text { max-height: 120px; color: var(--ink); font-size: 1rem; }
         .history-image-count { width: max-content; padding: 5px 9px; color: #4b5563; background: #f3f4f8; border-radius: 8px; font-size: 0.82rem; }
         .history-action { display: inline-flex; align-items: center; gap: 5px; height: 36px; background: #fff; border-color: #e0e4ee; color: #6d28d9; }
@@ -1045,6 +1171,7 @@
         let aiFolders = [];
         let activeAiFolderId = '';
         let selectedAiRuleId = '';
+        let pendingPcMessages = [];
 
         let _initHeight = 0;
 
@@ -1348,6 +1475,91 @@
             });
         }
 
+        function cleanPcAttachments(attachments) {
+            return (attachments || []).filter(item => item && item.id).map(item => ({
+                id: String(item.id),
+                name: item.name || '附件',
+                type: item.type || 'application/octet-stream',
+                size: Number(item.size) || 0,
+                view_url: item.view_url || `/api/files/${item.id}`,
+                download_url: item.download_url || `/api/files/${item.id}?download=1`,
+            }));
+        }
+
+        async function preserveDraftBeforePcFill(nextText) {
+            const current = syncDraftText();
+            if (!current.trim() || current === nextText) return;
+            const now = Date.now();
+            await saveHistoryRecord({
+                id: `draft-backup-${now}-${Math.random().toString(16).slice(2)}`,
+                kind: 'draft_backup',
+                action: 'draft',
+                text: current,
+                images: cloneImages(selectedImages),
+                createdAt: now,
+                updatedAt: now,
+            });
+        }
+
+        async function receivePcMessage(message, fillInput = true) {
+            if (!message || !message.id) return;
+            if (!historyReady) {
+                pendingPcMessages.push({ message, fillInput });
+                return;
+            }
+            const recordId = `pc-${message.id}`;
+            const existing = await requestToPromise(historyStore().get(recordId));
+            const text = normalizeText(message.text || '');
+            const attachments = cleanPcAttachments(message.attachments);
+            const createdAt = Number(message.created_at) || Date.now();
+            await saveHistoryRecord({
+                id: recordId,
+                server_id: message.id,
+                kind: 'received',
+                direction: 'pc_to_phone',
+                action: 'pc_to_phone',
+                text,
+                images: [],
+                attachments,
+                createdAt,
+                updatedAt: createdAt,
+            });
+            if (fillInput && !existing && text) {
+                await preserveDraftBeforePcFill(text);
+                textInput.value = text;
+                draftText = text;
+                await deleteHistoryRecord(AUTOSAVE_ID);
+                lastAutosaveSignature = recordSignature(text, []);
+                try {
+                    textInput.focus({ preventScroll: true });
+                } catch (err) {
+                    textInput.focus();
+                }
+            }
+            if (!historyOverlay.hidden) await renderHistory();
+        }
+
+        async function syncPcMessages() {
+            try {
+                const response = await fetch('/api/messages?after=0&limit=100', { cache: 'no-store' });
+                const data = await response.json();
+                if (!response.ok || !data.ok || !Array.isArray(data.messages)) return;
+                for (const message of data.messages) {
+                    await receivePcMessage(message, true);
+                }
+                const serverRecordIds = new Set(data.messages.map(message => `pc-${message.id}`));
+                const localRecords = await getHistoryRecords();
+                for (const record of localRecords) {
+                    if (record.kind === 'received' && !serverRecordIds.has(record.id)) {
+                        await deleteHistoryRecord(record.id);
+                    }
+                }
+                if (!historyOverlay.hidden) await renderHistory();
+            } catch (err) {
+                console.warn('电脑消息同步失败', err);
+            }
+        }
+
         function setImageDelaySeconds(seconds) {
             imageDelaySeconds = Math.min(MAX_IMAGE_DELAY_SECONDS, Math.max(MIN_IMAGE_DELAY_SECONDS, seconds));
             delayValue.textContent = `${imageDelaySeconds}`;
@@ -1373,6 +1585,7 @@
             statusText.textContent = '已连接';
             updateControls();
             loadAiButtons();
+            syncPcMessages();
             if (!historyOverlay.hidden) renderHistory();
         });
         socket.on('disconnect', () => {
@@ -1380,6 +1593,9 @@
             statusText.textContent = '已断开';
             updateControls();
             if (!historyOverlay.hidden) renderHistory();
+        });
+        socket.on('pc_message', message => {
+            receivePcMessage(message, true);
         });
 
         function selectAiRule(ruleId) {
@@ -1622,7 +1838,156 @@
 
         function recordBadge(record) {
             if (record.kind === 'autosave') return '自动保存';
+            if (record.kind === 'draft_backup') return '已保留草稿';
+            if (record.kind === 'received') return '电脑发送';
             return record.action === 'send' ? '已发送' : '已传递';
+        }
+
+        function formatAttachmentSize(size) {
+            const bytes = Number(size) || 0;
+            if (!bytes) return '';
+            if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))}KB`;
+            return `${(bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)}MB`;
+        }
+
+        const FILE_ICON_PATHS = {
+            spreadsheet: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="M8 13h2"></path><path d="M14 13h2"></path><path d="M8 17h2"></path><path d="M14 17h2"></path>',
+            document: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="M16 13H8"></path><path d="M16 17H8"></path><path d="M10 9H8"></path>',
+            presentation: '<path d="M2 3h20"></path><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"></path><path d="m7 21 5-5 5 5"></path><path d="M12 16v5"></path>',
+            archive: '<path d="M10 12v-1"></path><path d="M10 18v-2"></path><path d="M10 7V6"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M15.5 22H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v16a2 2 0 0 0 .274 1.01"></path><circle cx="10" cy="20" r="2"></circle>',
+            audio: '<path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle>',
+            code: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="m10 13-2 2 2 2"></path><path d="m14 17 2-2-2-2"></path>',
+            file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path>',
+        };
+
+        function fileTypeIconInfo(attachment) {
+            const name = String(attachment.name || '');
+            const extension = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+            if (['xls', 'xlsx', 'xlsm', 'csv', 'tsv', 'ods'].includes(extension)) return { type: 'spreadsheet', paths: FILE_ICON_PATHS.spreadsheet };
+            if (['doc', 'docx', 'rtf', 'txt', 'md', 'odt', 'epub'].includes(extension)) return { type: 'document', paths: FILE_ICON_PATHS.document };
+            if (extension === 'pdf') return { type: 'pdf', paths: FILE_ICON_PATHS.document };
+            if (['ppt', 'pptx', 'pps', 'ppsx', 'odp'].includes(extension)) return { type: 'presentation', paths: FILE_ICON_PATHS.presentation };
+            if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz'].includes(extension)) return { type: 'archive', paths: FILE_ICON_PATHS.archive };
+            if (['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg'].includes(extension)) return { type: 'audio', paths: FILE_ICON_PATHS.audio };
+            if (['py', 'java', 'c', 'cpp', 'h', 'html', 'css', 'json', 'xml', 'yaml', 'yml', 'sql'].includes(extension)) return { type: 'code', paths: FILE_ICON_PATHS.code };
+            return { type: 'file', paths: FILE_ICON_PATHS.file };
+        }
+
+        function triggerAttachmentDownload(attachment) {
+            const helper = document.createElement('a');
+            helper.href = attachment.download_url;
+            helper.download = attachment.name;
+            helper.target = '_blank';
+            helper.rel = 'noopener';
+            document.body.appendChild(helper);
+            helper.click();
+            helper.remove();
+        }
+
+        async function sharePcAttachment(attachment, button) {
+            const originalHtml = button.innerHTML;
+            button.disabled = true;
+            button.textContent = '准备中';
+            try {
+                const response = await fetch(attachment.download_url, { cache: 'no-store' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const blob = await response.blob();
+                const file = new File([blob], attachment.name, {
+                    type: attachment.type || blob.type || 'application/octet-stream',
+                });
+                const shareData = { files: [file], title: '转发文件' };
+                const canShareFiles = navigator.share && (!navigator.canShare || navigator.canShare(shareData));
+                if (canShareFiles) {
+                    await navigator.share(shareData);
+                } else {
+                    triggerAttachmentDownload(attachment);
+                    alert('当前浏览器不能直接打开分享面板，文件已开始下载。下载后可在微信中选择文件发送。');
+                }
+            } catch (err) {
+                if (err && err.name === 'AbortError') return;
+                console.warn('转发文件失败', err);
+                triggerAttachmentDownload(attachment);
+                alert('未能打开分享面板，已改为下载文件。下载后可在微信中选择文件发送。');
+            } finally {
+                button.disabled = false;
+                button.innerHTML = originalHtml;
+            }
+        }
+
+        function renderPcAttachments(record) {
+            const attachments = cleanPcAttachments(record.attachments);
+            if (!attachments.length) return null;
+            const container = document.createElement('div');
+            container.className = 'history-attachments';
+            if (attachments.length === 1) container.classList.add('single');
+            attachments.forEach(attachment => {
+                const card = document.createElement('div');
+                card.className = 'history-attachment';
+                if (attachment.type.startsWith('image/')) {
+                    const image = document.createElement('img');
+                    image.src = attachment.view_url;
+                    image.alt = attachment.name;
+                    image.title = '长按图片可以保存到手机';
+                    image.loading = 'lazy';
+                    card.appendChild(image);
+                } else if (attachment.type.startsWith('video/')) {
+                    const video = document.createElement('video');
+                    video.src = attachment.view_url;
+                    video.controls = true;
+                    video.preload = 'metadata';
+                    video.setAttribute('playsinline', '');
+                    card.appendChild(video);
+                } else {
+                    card.classList.add('file-row');
+                    const iconInfo = fileTypeIconInfo(attachment);
+                    const icon = document.createElement('div');
+                    icon.className = `history-file-icon ${iconInfo.type}`;
+                    icon.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${iconInfo.paths}</svg>`;
+                    card.appendChild(icon);
+                    const fileName = document.createElement('div');
+                    fileName.className = 'history-file-name';
+                    fileName.textContent = attachment.name || '未命名文件';
+                    fileName.title = attachment.name || '未命名文件';
+                    card.appendChild(fileName);
+                    const fileShare = document.createElement('button');
+                    fileShare.type = 'button';
+                    fileShare.className = 'history-file-share';
+                    fileShare.setAttribute('aria-label', '转发');
+                    fileShare.title = '转发';
+                    fileShare.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"></path><path d="m16 6-4-4-4 4"></path><path d="M12 2v14"></path></svg>';
+                    fileShare.onclick = () => sharePcAttachment(attachment, fileShare);
+                    card.appendChild(fileShare);
+                    const fileDownload = document.createElement('a');
+                    fileDownload.className = 'history-download';
+                    fileDownload.href = attachment.download_url;
+                    fileDownload.download = attachment.name;
+                    fileDownload.target = '_blank';
+                    fileDownload.rel = 'noopener';
+                    fileDownload.textContent = '下载';
+                    card.appendChild(fileDownload);
+                    container.appendChild(card);
+                    return;
+                }
+                const attachmentActions = document.createElement('div');
+                attachmentActions.className = 'history-attachment-actions';
+                const download = document.createElement('a');
+                download.className = 'history-download';
+                download.href = attachment.download_url;
+                download.download = attachment.name;
+                download.target = '_blank';
+                download.rel = 'noopener';
+                download.textContent = '下载';
+                attachmentActions.appendChild(download);
+                const share = document.createElement('button');
+                share.type = 'button';
+                share.className = 'history-share';
+                share.textContent = '转发';
+                share.onclick = () => sharePcAttachment(attachment, share);
+                attachmentActions.appendChild(share);
+                card.appendChild(attachmentActions);
+                container.appendChild(card);
+            });
+            return container;
         }
 
         async function renderHistory() {
@@ -1643,7 +2008,8 @@
                 const meta = document.createElement('div');
                 meta.className = 'history-meta';
                 const badge = document.createElement('span');
-                badge.className = `history-badge ${record.kind === 'autosave' ? 'autosave' : 'sent'}`;
+                const badgeClass = record.kind === 'received' ? 'received' : (record.kind === 'autosave' ? 'autosave' : 'sent');
+                badge.className = `history-badge ${badgeClass}`;
                 badge.textContent = recordBadge(record);
                 const time = document.createElement('span');
                 time.textContent = formatRecordTime(record.updatedAt || record.createdAt);
@@ -1653,7 +2019,7 @@
 
                 const text = document.createElement('div');
                 text.className = 'history-text';
-                text.textContent = record.text || (record.images && record.images.length ? '[仅图片]' : '[空]');
+                text.textContent = record.text || (record.images && record.images.length ? '[仅图片]' : ((record.attachments || []).length ? '[仅附件]' : '[空]'));
                 item.appendChild(text);
 
                 if (record.images && record.images.length) {
@@ -1663,11 +2029,18 @@
                     item.appendChild(imageCount);
                 }
 
+                const pcAttachments = renderPcAttachments(record);
+                if (pcAttachments) item.appendChild(pcAttachments);
+
                 const actions = document.createElement('div');
                 actions.className = 'history-actions';
-                actions.appendChild(historyActionButton('恢复', () => restoreRecord(record), 'primary'));
-                actions.appendChild(historyActionButton('传递', () => sendHistoryRecord(record, 'paste'), 'primary', !socket.connected));
-                actions.appendChild(historyActionButton('发送', () => sendHistoryRecord(record, 'send'), 'send', !socket.connected));
+                if (record.kind === 'received') {
+                    actions.appendChild(historyActionButton('填入输入框', () => restoreRecord(record), 'primary', !record.text));
+                } else {
+                    actions.appendChild(historyActionButton('恢复', () => restoreRecord(record), 'primary'));
+                    actions.appendChild(historyActionButton('传递', () => sendHistoryRecord(record, 'paste'), 'primary', !socket.connected));
+                    actions.appendChild(historyActionButton('发送', () => sendHistoryRecord(record, 'send'), 'send', !socket.connected));
+                }
                 actions.appendChild(historyActionButton('复制文本', () => copyPlainText(record.text || ''), 'copy', !record.text));
                 item.appendChild(actions);
                 historyList.appendChild(item);
@@ -1680,6 +2053,7 @@
             button.className = `history-action ${variant}`.trim();
             const iconMap = {
                 '恢复': 'rotate',
+                '填入输入框': 'rotate',
                 '传递': 'upload',
                 '发送': 'send',
                 '复制文本': 'copy',
@@ -1895,6 +2269,12 @@
             try {
                 historyDb = await openHistoryDb();
                 historyReady = true;
+                const queued = pendingPcMessages;
+                pendingPcMessages = [];
+                for (const item of queued) {
+                    await receivePcMessage(item.message, item.fillInput);
+                }
+                await syncPcMessages();
                 setInterval(saveAutosaveRecord, 1000);
             } catch (err) {
                 console.warn('记录功能不可用', err);

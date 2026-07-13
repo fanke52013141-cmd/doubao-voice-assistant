@@ -12,6 +12,13 @@ from flask import request
 from flask_socketio import SocketIO, emit
 
 from ai_assistant import load_ai_settings, public_ai_button_groups
+from message_store import (
+    allocate_file_name,
+    attachment_file,
+    cleanup_messages,
+    create_message,
+    list_messages,
+)
 from network_utils import get_local_ip, get_local_ip_candidates
 
 
@@ -34,9 +41,14 @@ def resource_path(relative_path):
 
 app = Flask(__name__, template_folder=resource_path("templates"))
 app.config['SECRET_KEY'] = 'voice-sync-secret-key'
-app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 220 * 1024 * 1024
 UPLOAD_TTL_SECONDS = 24 * 60 * 60
 ALLOWED_VIDEO_EXTENSIONS = {'.mp4', '.webm', '.mov', '.m4v'}
+ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.heic', '.heif'}
+BLOCKED_TRANSFER_EXTENSIONS = {
+    '.exe', '.com', '.bat', '.cmd', '.ps1', '.vbs', '.js', '.jse', '.msi',
+    '.scr', '.dll', '.sys', '.reg', '.lnk', '.url', '.hta',
+}
 
 
 def upload_dir():
@@ -99,6 +111,115 @@ def upload_video():
         'id': upload_id, 'name': Path(upload.filename).name, 'type': upload.mimetype,
         'size': target.stat().st_size, 'path': str(target),
     }})
+
+
+def is_loopback_request():
+    return request.remote_addr in {'127.0.0.1', '::1'}
+
+
+def clean_original_name(name):
+    name = Path(str(name or 'attachment')).name.replace('\x00', '')
+    name = ''.join(char for char in name if ord(char) >= 32)
+    return name[:240] or 'attachment'
+
+
+def validate_pc_upload(upload):
+    original_name = clean_original_name(upload.filename)
+    extension = Path(original_name).suffix.lower()
+    mime_type = (upload.mimetype or '').lower()
+    is_image = extension in ALLOWED_IMAGE_EXTENSIONS and mime_type.startswith('image/')
+    is_video = extension in ALLOWED_VIDEO_EXTENSIONS and mime_type.startswith('video/')
+    if extension in BLOCKED_TRANSFER_EXTENSIONS:
+        raise ValueError(f'出于安全原因不能传输此类程序文件：{original_name}')
+    if extension in ALLOWED_IMAGE_EXTENSIONS and not is_image:
+        raise ValueError(f'图片类型无法识别：{original_name}')
+    if extension in ALLOWED_VIDEO_EXTENSIONS and not is_video:
+        raise ValueError(f'视频类型无法识别：{original_name}')
+    return original_name, mime_type or 'application/octet-stream'
+
+
+@app.post('/api/pc/messages')
+def publish_pc_message():
+    """Accept a local Windows message, persist it, then notify phone browsers."""
+    if not is_loopback_request():
+        return jsonify({'ok': False, 'error': 'PC publish endpoint is local only'}), 403
+
+    text = str(request.form.get('text') or '')
+    uploads = [upload for upload in request.files.getlist('files') if upload and upload.filename]
+    if not text.strip() and not uploads:
+        return jsonify({'ok': False, 'error': '消息内容不能为空'}), 400
+
+    saved = []
+    try:
+        for upload in uploads:
+            original_name, mime_type = validate_pc_upload(upload)
+            stored_name, target = allocate_file_name(original_name)
+            upload.save(target)
+            size = target.stat().st_size
+            if size <= 0:
+                raise ValueError(f'附件为空：{original_name}')
+            if size > 200 * 1024 * 1024:
+                target.unlink(missing_ok=True)
+                raise ValueError(f'单个附件不能超过 200MB：{original_name}')
+            saved.append({
+                'id': Path(stored_name).stem,
+                'name': original_name,
+                'stored_name': stored_name,
+                'type': mime_type,
+                'size': size,
+                'path': target,
+            })
+        message = create_message(text, saved)
+        socketio.emit('pc_message', message)
+        cleanup_messages()
+        return jsonify({'ok': True, 'message': message})
+    except ValueError as error:
+        for item in saved:
+            try:
+                item['path'].unlink(missing_ok=True)
+            except OSError:
+                pass
+        return jsonify({'ok': False, 'error': str(error)}), 415
+    except Exception as error:
+        for item in saved:
+            try:
+                item['path'].unlink(missing_ok=True)
+            except OSError:
+                pass
+        print(f'电脑发送到手机失败: {error}', flush=True)
+        return jsonify({'ok': False, 'error': '保存消息失败'}), 500
+
+
+@app.get('/api/messages')
+def phone_messages():
+    """Return persisted PC messages so a phone can catch up after reconnecting."""
+    try:
+        after_id = int(request.args.get('after', 0))
+        limit = int(request.args.get('limit', 100))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'invalid pagination'}), 400
+    return jsonify({'ok': True, 'messages': list_messages(after_id, limit)})
+
+
+@app.get('/api/files/<attachment_id>')
+def shared_attachment(attachment_id):
+    """Preview or download an attachment by opaque id, never by filesystem path."""
+    if not attachment_id or not all(char in '0123456789abcdef' for char in attachment_id.lower()):
+        return jsonify({'ok': False, 'error': 'file not found'}), 404
+    attachment = attachment_file(attachment_id)
+    if not attachment:
+        return jsonify({'ok': False, 'error': 'file not found'}), 404
+    is_previewable = attachment['type'].startswith(('image/', 'video/'))
+    response = send_file(
+        attachment['path'],
+        mimetype=attachment['type'],
+        as_attachment=request.args.get('download') == '1' or not is_previewable,
+        download_name=attachment['name'],
+        conditional=True,
+    )
+    response.headers['Cache-Control'] = 'private, max-age=3600'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 @socketio.on('connect')
