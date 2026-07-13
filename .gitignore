@@ -7,10 +7,10 @@ ai-settings.json
 pc-ui-settings.json
 build/
 dist/
-*.spec
 .venv/
 venv/
 env/
 .env
 dist/
 build/
+installer-output/

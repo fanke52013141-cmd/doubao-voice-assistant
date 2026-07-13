@@ -10,6 +10,10 @@ import time
 import subprocess
 import json
 import ctypes
+import http.client
+import mimetypes
+import uuid
+from urllib.parse import quote
 import socketio
 import pyperclip
 import pyautogui
@@ -88,6 +92,10 @@ IMAGE_PASTE_MODE_FAST = "fast"
 IMAGE_PASTE_MODE_SAFE = "safe"
 IMAGE_TEXT_PASTE_DELAY_MS = 1000
 TEXT_PASTE_SETTLE_SECONDS = 0.05
+BLOCKED_TRANSFER_EXTENSIONS = {
+    ".exe", ".com", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".jse", ".msi",
+    ".scr", ".dll", ".sys", ".reg", ".lnk", ".url", ".hta",
+}
 WINDOW_TITLE = "语音输入助手"
 APP_USER_MODEL_ID = "DoubaoVoiceAssistant.VoiceInputAssistant"
 HISTORY_LIMIT = 20
@@ -370,6 +378,77 @@ def set_startup_enabled(enabled):
             winreg.DeleteValue(key, STARTUP_VALUE_NAME)
         except FileNotFoundError:
             pass
+
+
+class PcMessageUploadThread(QThread):
+    """Stream a PC message and large files to the local Flask server."""
+    upload_finished = pyqtSignal(object)
+
+    def __init__(self, text, file_paths, parent=None):
+        super().__init__(parent)
+        self.text = text or ""
+        self.file_paths = list(file_paths or [])
+
+    @staticmethod
+    def file_header(boundary, path):
+        original_name = os.path.basename(path)
+        suffix = os.path.splitext(original_name)[1].lower()
+        fallback_name = f"attachment{suffix}" if suffix else "attachment"
+        encoded_name = quote(original_name, safe="")
+        mime_type = mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+        return (
+            f"--{boundary}\r\n"
+            f"Content-Disposition: form-data; name=\"files\"; filename=\"{fallback_name}\"; "
+            f"filename*=UTF-8''{encoded_name}\r\n"
+            f"Content-Type: {mime_type}\r\n\r\n"
+        ).encode("ascii")
+
+    def run(self):
+        boundary = f"----VoiceAssistant{uuid.uuid4().hex}"
+        text_bytes = self.text.encode("utf-8")
+        text_part = (
+            f"--{boundary}\r\n"
+            "Content-Disposition: form-data; name=\"text\"\r\n"
+            "Content-Type: text/plain; charset=utf-8\r\n\r\n"
+        ).encode("ascii") + text_bytes + b"\r\n"
+        file_parts = []
+        try:
+            for path in self.file_paths:
+                if not os.path.isfile(path):
+                    raise FileNotFoundError(f"附件不存在：{os.path.basename(path)}")
+                file_parts.append((path, self.file_header(boundary, path), os.path.getsize(path)))
+            closing = f"--{boundary}--\r\n".encode("ascii")
+            content_length = len(text_part) + len(closing)
+            content_length += sum(len(header) + size + 2 for _path, header, size in file_parts)
+
+            connection = http.client.HTTPConnection("127.0.0.1", 56789, timeout=180)
+            connection.putrequest("POST", "/api/pc/messages")
+            connection.putheader("Content-Type", f"multipart/form-data; boundary={boundary}")
+            connection.putheader("Content-Length", str(content_length))
+            connection.endheaders()
+            connection.send(text_part)
+            for path, header, _size in file_parts:
+                connection.send(header)
+                with open(path, "rb") as file_handle:
+                    while True:
+                        chunk = file_handle.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        connection.send(chunk)
+                connection.send(b"\r\n")
+            connection.send(closing)
+            response = connection.getresponse()
+            raw = response.read()
+            connection.close()
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                payload = {"ok": False, "error": f"服务器返回异常（HTTP {response.status}）"}
+            if response.status >= 400:
+                payload["ok"] = False
+            self.upload_finished.emit(payload)
+        except Exception as error:
+            self.upload_finished.emit({"ok": False, "error": str(error)})
 
 class SocketIOThread(QThread):
     """WebSocket 连接线程"""
@@ -1270,6 +1349,40 @@ class AiSettingsDialog(QDialog):
         return self.settings
 
 
+class DoubleClickButton(QPushButton):
+    """Emit a delayed single click or an immediate double click, never both."""
+
+    singleClicked = pyqtSignal()
+    doubleClicked = pyqtSignal()
+
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self._skip_release_after_double_click = False
+        self._single_click_timer = QTimer(self)
+        self._single_click_timer.setSingleShot(True)
+        self._single_click_timer.timeout.connect(self.singleClicked.emit)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        if event.button() != Qt.LeftButton or not self.rect().contains(event.pos()):
+            return
+        if self._skip_release_after_double_click:
+            self._skip_release_after_double_click = False
+            return
+        app = QApplication.instance()
+        interval = app.doubleClickInterval() if app else 400
+        self._single_click_timer.start(interval)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._single_click_timer.stop()
+            self._skip_release_after_double_click = True
+            self.doubleClicked.emit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+
 class VoiceInputWindow(QMainWindow):
     """主窗口 - 精简版"""
     
@@ -1286,6 +1399,8 @@ class VoiceInputWindow(QMainWindow):
         self.pc_ui_settings = load_pc_ui_settings()
         self.ui_font_size = self.pc_ui_settings["font_size"]
         self.ai_workers = []
+        self.selected_pc_files = []
+        self.pc_upload_worker = None
         self.init_ui()
         self.show_startup_warning()
         self.init_socket()
@@ -1363,45 +1478,60 @@ class VoiceInputWindow(QMainWindow):
         address_bar.addWidget(self.copy_address_btn)
         layout.addWidget(self.address_card)
         
+        send_bar = QHBoxLayout()
+        send_bar.setSpacing(8)
+
+        self.send_input = QTextEdit()
+        self.send_input.setPlaceholderText("输入要发送到手机的文字...")
+        self.send_input.setAcceptRichText(False)
+        self.send_input.setFixedHeight(64)
+        self.send_input.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.send_input.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.send_input.textChanged.connect(self.update_pc_send_controls)
+        send_bar.addWidget(self.send_input, 1)
+
+        self.pc_attachment_btn = QPushButton("附件")
+        self.pc_attachment_btn.setFixedSize(92, 64)
+        self.pc_attachment_btn.setToolTip("选择发送到手机的图片、视频或文件")
+        self.pc_attachment_btn.clicked.connect(self.choose_pc_attachments)
+        send_bar.addWidget(self.pc_attachment_btn)
+
+        self.settings_btn = QPushButton("设置")
+        self.settings_btn.setFixedSize(84, 64)
+        self.settings_btn.setToolTip("打开 AI 设置")
+        self.settings_btn.clicked.connect(self.open_ai_settings)
+        self.settings_btn.setStyleSheet("""
+            QPushButton {
+                background: #eff6ff;
+                color: #1e40af;
+                border: 1px solid #93c5fd;
+                border-radius: 10px;
+                font-size: 21px;
+                font-weight: 700;
+            }
+            QPushButton:hover { background: #dbeafe; }
+        """)
+        send_bar.addWidget(self.settings_btn)
+
+        self.pc_send_btn = QPushButton("发送")
+        self.pc_send_btn.setFixedSize(84, 64)
+        self.pc_send_btn.setToolTip("把文字和附件发送到手机")
+        self.pc_send_btn.clicked.connect(self.send_pc_message)
+        self.pc_send_btn.setEnabled(False)
+        send_bar.addWidget(self.pc_send_btn)
+        layout.addLayout(send_bar)
+
         control_bar = QHBoxLayout()
         control_bar.setSpacing(8)
-        
-        # 文本显示区域（低高度状态预览）
+
+        # 手机传来的内容、连接错误和发送结果显示在独立状态区，避免覆盖待发送草稿。
         self.text_display = QTextEdit()
         self.text_display.setReadOnly(True)
         self.text_display.setPlaceholderText("等待接收...")
         self.text_display.setFixedHeight(52)
         self.text_display.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.text_display.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.text_display.setStyleSheet("""
-            QTextEdit {
-                background: #ffffff;
-                border: 1px solid #7c3aed;
-                border-radius: 12px;
-                padding: 8px 12px;
-                font-size: 22px;
-                color: #334155;
-            }
-        """)
         control_bar.addWidget(self.text_display, 1)
-
-        self.restart_btn = QPushButton("重启")
-        self.restart_btn.setFixedSize(84, 52)
-        self.restart_btn.setToolTip("重启语音输入助手")
-        self.restart_btn.clicked.connect(self.restart_app)
-        self.restart_btn.setStyleSheet("""
-            QPushButton {
-                background: #fff7ed;
-                color: #9a3412;
-                border: 1px solid #fed7aa;
-                border-radius: 10px;
-                font-size: 21px;
-                font-weight: 700;
-            }
-            QPushButton:hover { background: #ffedd5; }
-            QPushButton:disabled { color: #9ca3af; background: #f3f4f6; }
-        """)
-        control_bar.addWidget(self.restart_btn)
         
         # 置顶按钮
         self.pin_btn = QPushButton("置顶")
@@ -1428,22 +1558,24 @@ class VoiceInputWindow(QMainWindow):
         """)
         control_bar.addWidget(self.history_btn)
 
-        self.settings_btn = QPushButton("设置")
-        self.settings_btn.setFixedSize(84, 52)
-        self.settings_btn.setToolTip("打开 AI 设置")
-        self.settings_btn.clicked.connect(self.open_ai_settings)
-        self.settings_btn.setStyleSheet("""
+        self.restart_btn = DoubleClickButton("重启")
+        self.restart_btn.setFixedSize(84, 52)
+        self.restart_btn.setToolTip("双击重启语音输入助手")
+        self.restart_btn.singleClicked.connect(self.show_restart_hint)
+        self.restart_btn.doubleClicked.connect(self.restart_app)
+        self.restart_btn.setStyleSheet("""
             QPushButton {
-                background: #eff6ff;
-                color: #1e40af;
-                border: 1px solid #93c5fd;
+                background: #fff7ed;
+                color: #9a3412;
+                border: 1px solid #fed7aa;
                 border-radius: 10px;
                 font-size: 21px;
                 font-weight: 700;
             }
-            QPushButton:hover { background: #dbeafe; }
+            QPushButton:hover { background: #ffedd5; }
+            QPushButton:disabled { color: #9ca3af; background: #f3f4f6; }
         """)
-        control_bar.addWidget(self.settings_btn)
+        control_bar.addWidget(self.restart_btn)
         layout.addLayout(control_bar)
         
         self.history_panel = QWidget()
@@ -1522,10 +1654,10 @@ class VoiceInputWindow(QMainWindow):
         return width, height, pin_width
 
     def main_window_width(self):
-        return max(900, self.font_px(0) * 20 + 420)
+        return max(1120, self.font_px(0) * 24 + 520)
 
     def collapsed_window_height(self):
-        return max(170, self.font_px(0) * 5 + 62)
+        return max(245, self.font_px(0) * 6 + 110)
 
     def expanded_window_height(self):
         return max(720, self.collapsed_window_height() + 570)
@@ -1565,6 +1697,7 @@ class VoiceInputWindow(QMainWindow):
 
     def apply_pc_font_size_styles(self):
         button_width, button_height, pin_width = self.control_button_size()
+        send_height = max(64, self.font_px(0) + 40)
         self.collapsed_height = self.collapsed_window_height()
         self.expanded_height = self.expanded_window_height()
         self.setMinimumWidth(self.main_window_width())
@@ -1584,7 +1717,20 @@ class VoiceInputWindow(QMainWindow):
             }}
         """)
 
-        self.text_display.setFixedHeight(max(52, self.font_px(2) + 32))
+        self.send_input.setFixedHeight(send_height)
+        self.send_input.setStyleSheet(f"""
+            QTextEdit {{
+                background: #ffffff;
+                border: 2px solid {UI_COLORS['brand']};
+                border-radius: 12px;
+                padding: 9px 13px;
+                font-size: {self.font_px(2)}px;
+                color: #111827;
+            }}
+            QTextEdit:focus {{ border-color: #5b21b6; background: #fefeff; }}
+        """)
+
+        self.text_display.setFixedHeight(button_height)
         self.text_display.setStyleSheet(f"""
             QTextEdit {{
                 background: #ffffff;
@@ -1604,14 +1750,23 @@ class VoiceInputWindow(QMainWindow):
             }}
         """)
 
-        self.restart_btn.setFixedSize(button_width, button_height)
-        self.restart_btn.setStyleSheet(self.button_style("#fff7ed", "#ffedd5", border_color="#fed7aa", text_color="#9a3412", disabled=True))
+        # 附件按钮与“取消置顶”同宽，使上下两个文本框严格对齐。
+        self.pc_attachment_btn.setFixedSize(pin_width, send_height)
+        self.pc_attachment_btn.setStyleSheet(
+            self.button_style("#f5f3ff", "#ede9fe", border_color="#c4b5fd", text_color="#5b21b6")
+        )
+        self.settings_btn.setFixedSize(button_width, send_height)
+        self.settings_btn.setStyleSheet(self.button_style("#eff6ff", "#dbeafe", border_color="#93c5fd", text_color="#1e40af"))
+        self.pc_send_btn.setFixedSize(button_width, send_height)
+        self.pc_send_btn.setStyleSheet(
+            self.button_style("#ffedd5", "#fed7aa", border_color="#fb923c", text_color="#9a3412", disabled=True)
+        )
         self.pin_btn.setFixedSize(pin_width, button_height)
         self.update_pin_style()
         self.history_btn.setFixedSize(button_width, button_height)
         self.history_btn.setStyleSheet(self.button_style(UI_COLORS["success_soft"], "#bbf7d0", border_color="#86efac", text_color="#14532d"))
-        self.settings_btn.setFixedSize(button_width, button_height)
-        self.settings_btn.setStyleSheet(self.button_style("#eff6ff", "#dbeafe", border_color="#93c5fd", text_color="#1e40af"))
+        self.restart_btn.setFixedSize(button_width, button_height)
+        self.restart_btn.setStyleSheet(self.button_style("#fff7ed", "#ffedd5", border_color="#fed7aa", text_color="#9a3412", disabled=True))
 
         self.history_scroll.setFixedHeight(max(520, self.font_px(0) * 15))
         window_height = self.expanded_height if self.history_expanded else self.collapsed_height
@@ -1634,6 +1789,82 @@ class VoiceInputWindow(QMainWindow):
         self.socket_thread.text_received.connect(self.on_text_received)
         self.socket_thread.connection_changed.connect(self.on_connection_changed)
         self.socket_thread.start()
+
+    def choose_pc_attachments(self):
+        paths, _selected_filter = QFileDialog.getOpenFileNames(
+            self,
+            "选择发送到手机的图片、视频或文件",
+            "",
+            "所有支持的附件 (*.*)",
+        )
+        if not paths:
+            return
+        valid = []
+        total_size = 0
+        for path in paths:
+            suffix = os.path.splitext(path)[1].lower()
+            if suffix in BLOCKED_TRANSFER_EXTENSIONS:
+                self.text_display.setText(f"出于安全原因不能传输此类程序文件：{os.path.basename(path)}")
+                return
+            size = os.path.getsize(path)
+            if size > 200 * 1024 * 1024:
+                self.text_display.setText(f"单个附件不能超过 200MB：{os.path.basename(path)}")
+                return
+            total_size += size
+            valid.append(path)
+        if total_size > 210 * 1024 * 1024:
+            self.text_display.setText("一次发送的附件总量不能超过 210MB，请分批发送。")
+            return
+        self.selected_pc_files = valid
+        self.pc_attachment_btn.setText(f"附件 {len(valid)}")
+        self.pc_attachment_btn.setToolTip("\n".join(os.path.basename(path) for path in valid))
+        self.update_pc_send_controls()
+
+    def update_pc_send_controls(self):
+        uploading = self.pc_upload_worker is not None and self.pc_upload_worker.isRunning()
+        has_content = bool(self.send_input.toPlainText().strip() or self.selected_pc_files)
+        self.pc_send_btn.setEnabled(self.is_connected and has_content and not uploading)
+        self.pc_attachment_btn.setEnabled(self.is_connected and not uploading)
+        self.restart_btn.setEnabled(not uploading)
+
+    def send_pc_message(self):
+        text = self.send_input.toPlainText()
+        if not text.strip() and not self.selected_pc_files:
+            return
+        if self.pc_upload_worker is not None and self.pc_upload_worker.isRunning():
+            return
+        self.pc_send_btn.setText("发送中")
+        self.pc_upload_worker = PcMessageUploadThread(text, self.selected_pc_files, self)
+        self.pc_upload_worker.upload_finished.connect(self.on_pc_message_uploaded)
+        self.pc_upload_worker.finished.connect(
+            lambda worker=self.pc_upload_worker: self.on_pc_upload_thread_finished(worker)
+        )
+        self.pc_upload_worker.start()
+        self.update_pc_send_controls()
+
+    def on_pc_message_uploaded(self, result):
+        self.pc_send_btn.setText("发送")
+        if result.get("ok"):
+            message = result.get("message") or {}
+            self.add_pc_sent_history_record(message)
+            self.send_input.clear()
+            self.selected_pc_files = []
+            self.pc_attachment_btn.setText("附件")
+            self.pc_attachment_btn.setToolTip("选择发送到手机的图片、视频或文件")
+            attachment_count = len(message.get("attachments") or [])
+            self.text_display.setText(
+                f"已发送到手机：文字 {len(message.get('text') or '')} 字，附件 {attachment_count} 个"
+            )
+            self.show_temporary_title("✅ 已发送到手机")
+        else:
+            self.text_display.setText(f"发送到手机失败：{result.get('error') or '未知错误'}")
+        self.update_pc_send_controls()
+
+    def on_pc_upload_thread_finished(self, worker):
+        if self.pc_upload_worker is worker:
+            self.pc_upload_worker = None
+        worker.deleteLater()
+        self.update_pc_send_controls()
 
     def open_ai_settings(self):
         """Open AI settings and persist changes."""
@@ -2170,7 +2401,8 @@ class VoiceInputWindow(QMainWindow):
         text_lines = 4 if record.get("ai_rule") else 2
         text_height = QFontMetrics(text_font).lineSpacing() * text_lines + 8
         meta_height = QFontMetrics(meta_font).lineSpacing() + 4
-        content_height = max(50 if record.get("images") else 42, self.font_px(-2) + 22)
+        has_media = bool(record.get("images") or record.get("attachments"))
+        content_height = max(50 if has_media else 42, self.font_px(-2) + 22)
 
         item = QFrame()
         item.setObjectName("historyCard")
@@ -2248,6 +2480,17 @@ class VoiceInputWindow(QMainWindow):
                 thumb.copy_requested.connect(lambda _index, img=image: self.copy_image_object(img))
                 image_row.addWidget(thumb)
             content_row.addLayout(image_row)
+
+        attachments = record.get("attachments") or []
+        if attachments:
+            names = [item.get("name", "附件") for item in attachments if isinstance(item, dict)]
+            attachment_label = QLabel("附件：" + "、".join(names))
+            attachment_label.setToolTip("\n".join(names))
+            attachment_label.setMaximumWidth(max(260, self.main_window_width() // 3))
+            attachment_label.setStyleSheet(
+                f"color: {UI_COLORS['muted']}; border: none; font-size: {self.font_px(-2)}px;"
+            )
+            content_row.addWidget(attachment_label)
         
         action_row = QHBoxLayout()
         action_row.setSpacing(8)
@@ -2286,9 +2529,20 @@ class VoiceInputWindow(QMainWindow):
             if record.get("ai_error"):
                 return f"原文：{original_text}\nAI失败：{record.get('ai_error')}\n已原样处理：{record.get('text', '')}"
             return f"原文：{original_text}\nAI结果：{record.get('ai_text') or record.get('text', '')}"
-        return record.get("text") or ("[仅图片]" if record.get("images") else "[空]")
+        if record.get("text"):
+            return record.get("text")
+        if record.get("images"):
+            return "[仅图片]"
+        if record.get("attachments"):
+            return f"[仅附件 {len(record.get('attachments') or [])} 个]"
+        return "[空]"
     
     def format_history_meta(self, record):
+        if record.get("direction") == "pc_to_phone":
+            timestamp = time.localtime(record.get("time", time.time()))
+            time_text = time.strftime("%H:%M:%S", timestamp)
+            attachment_count = len(record.get("attachments") or [])
+            return f"电脑发送到手机  {time_text}  附件 {attachment_count}"
         label = "发送" if record.get("action") == "send" else "传递"
         if record.get("ai_rule"):
             prefix = "AI失败" if record.get("ai_error") else f"AI·{record.get('ai_rule')}"
@@ -2356,6 +2610,7 @@ class VoiceInputWindow(QMainWindow):
         """连接状态变化"""
         self.is_connected = connected
         self.apply_connection_style()
+        self.update_pc_send_controls()
     
     def show_startup_warning(self):
         warning = os.environ.get("VOICE_ASSISTANT_FIREWALL_WARNING")
@@ -2421,7 +2676,47 @@ class VoiceInputWindow(QMainWindow):
         self.save_history()
         if self.history_expanded:
             self.refresh_history_panel()
+
+    def add_pc_sent_history_record(self, message):
+        text = str(message.get("text") or "")
+        attachments = [
+            {
+                "id": item.get("id", ""),
+                "name": item.get("name", "附件"),
+                "type": item.get("type", ""),
+                "size": item.get("size", 0),
+                "view_url": item.get("view_url", ""),
+                "download_url": item.get("download_url", ""),
+            }
+            for item in (message.get("attachments") or [])
+            if isinstance(item, dict)
+        ]
+        if not text and not attachments:
+            return
+        created_at = message.get("created_at")
+        try:
+            record_time = float(created_at) / 1000 if created_at else time.time()
+        except (TypeError, ValueError):
+            record_time = time.time()
+        self.history_records.insert(0, {
+            "time": record_time,
+            "action": "pc_send",
+            "direction": "pc_to_phone",
+            "server_id": message.get("id"),
+            "text": text,
+            "images": [],
+            "attachments": attachments,
+        })
+        self.history_records = self.history_records[:HISTORY_LIMIT]
+        self.save_history()
+        if self.history_expanded:
+            self.refresh_history_panel()
     
+    def show_restart_hint(self):
+        """Explain the safety gesture without interrupting the user's draft."""
+        self.text_display.setText("为防止误操作，请双击“重启”按钮。")
+        self.show_temporary_title("请双击重启")
+
     def restart_app(self):
         """Exit first, then let a detached helper start a clean instance."""
         base_dir = launch_working_dir()
@@ -2460,6 +2755,10 @@ class VoiceInputWindow(QMainWindow):
     
     def closeEvent(self, event):
         """关闭事件"""
+        if self.pc_upload_worker is not None and self.pc_upload_worker.isRunning():
+            self.text_display.setText("附件正在发送，请等待发送完成后再关闭。")
+            event.ignore()
+            return
         self.socket_thread.stop()
         self.socket_thread.wait(1000)
         event.accept()
