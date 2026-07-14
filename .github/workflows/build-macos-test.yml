@@ -27,8 +27,8 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
       VOICE_ASSISTANT_BUNDLE_VERSION: "2.0.1"
-      VOICE_ASSISTANT_BUILD_VERSION: "20101"
-      VOICE_ASSISTANT_PACKAGE_VERSION: "2.0.1-test.1"
+      VOICE_ASSISTANT_BUILD_VERSION: "20102"
+      VOICE_ASSISTANT_PACKAGE_VERSION: "2.0.1-test.2"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -58,14 +58,21 @@ jobs:
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           ready=false
-          for _ in {1..40}; do
+          for _ in {1..120}; do
             if curl --fail --silent http://127.0.0.1:56789/ > /dev/null; then
               ready=true
               break
             fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              break
+            fi
             sleep 0.25
           done
-          test "$ready" = true
+          if [[ "$ready" != true ]]; then
+            echo "Packaged server did not become ready." >&2
+            cat /tmp/voice-assistant-server.log >&2 || true
+            exit 1
+          fi
           kill "$server_pid"
           wait "$server_pid" || true
           trap - EXIT
@@ -100,6 +107,6 @@ jobs:
             release-artifacts/*.dmg \
             release-artifacts/*.sha256.txt \
             --repo "$GITHUB_REPOSITORY" \
-            --title "语音输入助手 macOS 个人测试版 2.0.1-test.1" \
+            --title "语音输入助手 macOS 个人测试版 2.0.1-test.2" \
             --notes "个人测试版，包含 Apple Silicon 与 Intel 两个 DMG。首次安装步骤见 DMG 内的《安装说明.txt》。本版本使用临时签名，未经 Apple 公证。" \
             --prerelease
