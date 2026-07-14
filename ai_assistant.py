@@ -12,6 +12,8 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 
+from transfer_config import app_data_root
+
 
 AI_SETTINGS_FILE = "ai-settings.json"
 AI_LOG_FILE = "ai-assistant.log"
@@ -152,14 +154,9 @@ DEFAULT_AI_SETTINGS = {
 
 
 def runtime_data_dir():
-    """Use AppData for writable files in the packaged app."""
+    """Use a user-writable data folder in the packaged app."""
     if getattr(sys, "frozen", False):
-        path = os.path.join(
-            os.environ.get("APPDATA", os.path.dirname(sys.executable)),
-            "VoiceInputAssistant",
-        )
-        os.makedirs(path, exist_ok=True)
-        return path
+        return str(app_data_root())
     return os.path.dirname(os.path.abspath(__file__))
 
 

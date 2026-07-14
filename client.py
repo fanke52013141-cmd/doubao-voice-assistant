@@ -10,6 +10,7 @@ import time
 import subprocess
 import json
 import ctypes
+import plistlib
 import http.client
 import mimetypes
 import uuid
@@ -81,6 +82,7 @@ from transfer_config import (
     BLOCKED_TRANSFER_EXTENSIONS,
     MAX_TRANSFER_FILE_BYTES,
     MAX_TRANSFER_SELECTION_BYTES,
+    app_data_root,
     phone_access_url,
 )
 
@@ -108,6 +110,7 @@ MIN_PC_FONT_SIZE = 18
 MAX_PC_FONT_SIZE = 36
 STARTUP_VALUE_NAME = "VoiceInputAssistant"
 STARTUP_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+MACOS_LAUNCH_AGENT_LABEL = "com.fanke.voiceinputassistant"
 
 UI_COLORS = {
     "brand": "#7c3aed",
@@ -169,6 +172,8 @@ def resource_path(relative_path):
 def app_icon_path():
     """Find the app icon in source, packaged resources, or next to the exe."""
     candidates = [
+        resource_path("assets/app-icon-v2.png"),
+        resource_path("assets/app-icon-256.png"),
         resource_path("voice-assistant-v2.ico"),
         resource_path("语音输入助手.ico"),
         resource_path("icon.ico"),
@@ -197,11 +202,9 @@ def set_windows_app_user_model_id():
 
 
 def runtime_data_dir():
-    """Use AppData for writable files in the packaged app."""
+    """Use a user-writable data folder in the packaged app."""
     if getattr(sys, "frozen", False):
-        path = os.path.join(os.environ.get("APPDATA", os.path.dirname(sys.executable)), "VoiceInputAssistant")
-        os.makedirs(path, exist_ok=True)
-        return path
+        return str(app_data_root())
     return os.path.dirname(os.path.abspath(__file__))
 
 
@@ -308,13 +311,28 @@ def launch_working_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def macos_app_bundle_path(executable=None):
+    """Return the containing .app bundle for a packaged macOS executable."""
+    current = os.path.abspath(executable or sys.executable)
+    marker = ".app" + os.sep
+    marker_index = current.lower().find(marker)
+    if marker_index < 0:
+        return ""
+    return current[:marker_index + len(".app")]
+
+
+def paste_hotkey():
+    """Return the platform-native paste shortcut understood by PyAutoGUI."""
+    return ("command", "v") if sys.platform == "darwin" else ("ctrl", "v")
+
+
 def startup_command_line():
     return subprocess.list2cmdline(launch_command())
 
 
 def spawn_delayed_restart(command, working_dir, delay_seconds=2.5):
     """Relaunch after the current launcher releases its single-instance lock."""
-    if getattr(sys, "frozen", False):
+    if getattr(sys, "frozen", False) and os.name == "nt":
         quoted = subprocess.list2cmdline(command)
         helper = f'ping 127.0.0.1 -n 4 > nul & start "" {quoted}'
         return subprocess.Popen(
@@ -325,6 +343,20 @@ def spawn_delayed_restart(command, working_dir, delay_seconds=2.5):
             stderr=subprocess.DEVNULL,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
             | getattr(subprocess, "DETACHED_PROCESS", 0),
+        )
+
+    if getattr(sys, "frozen", False) and sys.platform == "darwin":
+        app_bundle = macos_app_bundle_path(command[0] if command else None)
+        if not app_bundle:
+            raise RuntimeError("无法确定应用程序安装位置")
+        helper = 'sleep "$1"; /usr/bin/open -n "$2"'
+        return subprocess.Popen(
+            ["/bin/sh", "-c", helper, "voice-assistant-restart", str(delay_seconds), app_bundle],
+            cwd=working_dir,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
 
     pythonw = bundled_pythonw_executable(working_dir)
@@ -362,14 +394,63 @@ def startup_registry_value():
         return ""
 
 
+def macos_launch_agent_path():
+    return os.path.expanduser(
+        f"~/Library/LaunchAgents/{MACOS_LAUNCH_AGENT_LABEL}.plist"
+    )
+
+
+def macos_startup_arguments():
+    if getattr(sys, "frozen", False):
+        app_bundle = macos_app_bundle_path()
+        if not app_bundle:
+            raise RuntimeError("请先把应用拖入“应用程序”文件夹后再设置登录自启")
+        return ["/usr/bin/open", "-g", app_bundle]
+    return launch_command()
+
+
+def macos_startup_enabled():
+    path = macos_launch_agent_path()
+    try:
+        with open(path, "rb") as plist_file:
+            data = plistlib.load(plist_file)
+        return (
+            data.get("Label") == MACOS_LAUNCH_AGENT_LABEL
+            and data.get("ProgramArguments") == macos_startup_arguments()
+        )
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def is_startup_enabled():
+    if sys.platform == "darwin":
+        return macos_startup_enabled()
     value = startup_registry_value().strip()
     return bool(value) and value.lower() == startup_command_line().strip().lower()
 
 
 def set_startup_enabled(enabled):
+    if sys.platform == "darwin":
+        path = macos_launch_agent_path()
+        if not enabled:
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            return
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        payload = {
+            "Label": MACOS_LAUNCH_AGENT_LABEL,
+            "ProgramArguments": macos_startup_arguments(),
+            "RunAtLoad": True,
+        }
+        temporary = f"{path}.{os.getpid()}.tmp"
+        with open(temporary, "wb") as plist_file:
+            plistlib.dump(payload, plist_file, sort_keys=True)
+        os.replace(temporary, path)
+        return
     if os.name != "nt":
-        raise RuntimeError("开机自启只支持 Windows")
+        raise RuntimeError("当前系统暂不支持登录自启")
     import winreg
 
     with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, STARTUP_RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
@@ -762,7 +843,8 @@ class AiSettingsDialog(QDialog):
 
         self.show_title_check = QCheckBox("AI 处理中显示窗口标题")
         self.save_history_check = QCheckBox("记录原始文本和 AI 结果")
-        self.startup_check = QCheckBox("开机自动启动")
+        startup_label = "登录时自动启动" if sys.platform == "darwin" else "开机自动启动"
+        self.startup_check = QCheckBox(startup_label)
         page_behavior_layout.addWidget(self.show_title_check)
         page_behavior_layout.addWidget(self.save_history_check)
         page_behavior_layout.addWidget(self.startup_check)
@@ -2128,12 +2210,12 @@ class VoiceInputWindow(QMainWindow):
         )
         QApplication.clipboard().setImage(qimage)
         QApplication.processEvents()
-        pyautogui.hotkey('ctrl', 'v')
+        pyautogui.hotkey(*paste_hotkey())
         time.sleep(delay_seconds)
         return True
 
     def paste_video_files(self, videos):
-        """Place uploaded videos on the Windows clipboard as real files."""
+        """Place uploaded videos on the system clipboard as real files."""
         paths = [video.get('path') for video in (videos or [])
                  if isinstance(video, dict) and os.path.isfile(video.get('path', ''))]
         if not paths:
@@ -2142,7 +2224,7 @@ class VoiceInputWindow(QMainWindow):
         mime.setUrls([QUrl.fromLocalFile(path) for path in paths])
         QApplication.clipboard().setMimeData(mime)
         QApplication.processEvents()
-        pyautogui.hotkey('ctrl', 'v')
+        pyautogui.hotkey(*paste_hotkey())
         time.sleep(1.5)
         log_client_event(f"pasted video files={len(paths)}")
         return len(paths)
@@ -2572,7 +2654,7 @@ class VoiceInputWindow(QMainWindow):
     def paste_text(self, text):
         """把文字放入系统剪贴板并粘贴到当前光标位置。"""
         pyperclip.copy(text)
-        pyautogui.hotkey('ctrl', 'v')
+        pyautogui.hotkey(*paste_hotkey())
         time.sleep(TEXT_PASTE_SETTLE_SECONDS)
     
     def normalize_image_delay_ms(self, value):

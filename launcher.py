@@ -12,6 +12,8 @@ import subprocess
 import sys
 import time
 
+from transfer_config import app_data_root
+
 
 APP_NAME = "语音输入助手"
 PORT = 56789
@@ -21,11 +23,7 @@ BASE_DIR = (
     if getattr(sys, "frozen", False)
     else os.path.dirname(os.path.abspath(__file__))
 )
-RUNTIME_DIR = (
-    os.path.join(os.environ.get("APPDATA", BASE_DIR), "VoiceInputAssistant")
-    if getattr(sys, "frozen", False)
-    else BASE_DIR
-)
+RUNTIME_DIR = str(app_data_root()) if getattr(sys, "frozen", False) else BASE_DIR
 os.makedirs(RUNTIME_DIR, exist_ok=True)
 SERVER_LOG = os.path.join(RUNTIME_DIR, "voice-sync-server.log")
 FIREWALL_RULE_NAME = f"VoiceInputAssistant {PORT}"
@@ -61,37 +59,79 @@ def hidden_runner_path():
 
 
 def show_error(message):
-    """Show a Windows message box when there is no console to print to."""
-    try:
-        ctypes.windll.user32.MessageBoxW(0, message, APP_NAME, 0x10)
-    except Exception:
-        pass
+    """Show a native error dialog when there is no console to print to."""
+    if os.name == "nt":
+        try:
+            ctypes.windll.user32.MessageBoxW(0, message, APP_NAME, 0x10)
+            return
+        except Exception:
+            pass
+    if sys.platform == "darwin":
+        try:
+            script = (
+                'on run argv\n'
+                f'  display alert "{APP_NAME}" message (item 1 of argv) as critical\n'
+                'end run'
+            )
+            subprocess.run(
+                [
+                    "/usr/bin/osascript",
+                    "-e",
+                    script,
+                    str(message),
+                ],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
 
 
 def acquire_single_instance_lock():
     """Prevent multiple desktop receivers from pasting the same message."""
-    if os.name != "nt":
-        return None
-    try:
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        handle = kernel32.CreateMutexW(None, True, MUTEX_NAME)
-        if not handle:
+    if os.name == "nt":
+        try:
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            handle = kernel32.CreateMutexW(None, True, MUTEX_NAME)
+            if not handle:
+                return None
+            if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
+                kernel32.CloseHandle(handle)
+                return False
+            return handle
+        except Exception:
             return None
-        if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
-            kernel32.CloseHandle(handle)
+    try:
+        import fcntl
+
+        lock_file = open(os.path.join(RUNTIME_DIR, "voice-assistant.lock"), "a+")
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            lock_file.close()
             return False
-        return handle
+        return lock_file
     except Exception:
         return None
 
 
 def release_single_instance_lock(handle):
-    if handle in (None, False) or os.name != "nt":
+    if handle in (None, False):
+        return
+    if os.name == "nt":
+        try:
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.ReleaseMutex(handle)
+            kernel32.CloseHandle(handle)
+        except Exception:
+            pass
         return
     try:
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel32.ReleaseMutex(handle)
-        kernel32.CloseHandle(handle)
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
     except Exception:
         pass
 

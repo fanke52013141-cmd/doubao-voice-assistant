@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import re
 import secrets
+import sys
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -32,8 +33,15 @@ _TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_-]{32,128}")
 
 
 def app_data_root() -> Path:
-    fallback = os.path.dirname(os.path.abspath(__file__))
-    root = Path(os.environ.get("APPDATA", fallback)) / APP_DATA_FOLDER
+    if os.environ.get("APPDATA"):
+        base = Path(os.environ["APPDATA"])
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    elif os.environ.get("XDG_DATA_HOME"):
+        base = Path(os.environ["XDG_DATA_HOME"])
+    else:
+        base = Path.home() / ".local" / "share"
+    root = base / APP_DATA_FOLDER
     root.mkdir(parents=True, exist_ok=True)
     return root
 
