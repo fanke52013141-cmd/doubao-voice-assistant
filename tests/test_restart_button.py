@@ -25,13 +25,17 @@ class RestartButtonTests(unittest.TestCase):
     def tearDown(self):
         self.button.close()
 
+    def wait_for_click_resolution(self):
+        """Allow headless macOS runners enough time to deliver the Qt timer."""
+        QTest.qWait(self.app.doubleClickInterval() + 300)
+
     def test_single_click_only_emits_hint_signal(self):
         events = []
         self.button.singleClicked.connect(lambda: events.append("single"))
         self.button.doubleClicked.connect(lambda: events.append("double"))
 
         QTest.mouseClick(self.button, Qt.LeftButton)
-        QTest.qWait(self.app.doubleClickInterval() + 50)
+        self.wait_for_click_resolution()
 
         self.assertEqual(events, ["single"])
 
@@ -41,7 +45,7 @@ class RestartButtonTests(unittest.TestCase):
         self.button.doubleClicked.connect(lambda: events.append("double"))
 
         QTest.mouseDClick(self.button, Qt.LeftButton)
-        QTest.qWait(self.app.doubleClickInterval() + 50)
+        self.wait_for_click_resolution()
 
         self.assertEqual(events, ["double"])
 
@@ -51,7 +55,7 @@ class RestartButtonTests(unittest.TestCase):
         self.button.doubleClicked.connect(lambda: events.append("double"))
 
         QTest.keyClick(self.button, Qt.Key_Return)
-        QTest.qWait(self.app.doubleClickInterval() + 50)
+        self.wait_for_click_resolution()
 
         self.assertEqual(events, ["single"])
 
@@ -62,7 +66,7 @@ class RestartButtonTests(unittest.TestCase):
 
         QTest.keyClick(self.button, Qt.Key_Return)
         QTest.keyClick(self.button, Qt.Key_Return)
-        QTest.qWait(self.app.doubleClickInterval() + 50)
+        self.wait_for_click_resolution()
 
         self.assertEqual(events, ["double"])
 
