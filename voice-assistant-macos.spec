@@ -3,7 +3,7 @@ import os
 
 
 bundle_version = os.environ.get("VOICE_ASSISTANT_BUNDLE_VERSION", "2.0.1")
-build_version = os.environ.get("VOICE_ASSISTANT_BUILD_VERSION", "20101")
+build_version = os.environ.get("VOICE_ASSISTANT_BUILD_VERSION", "20103")
 
 a = Analysis(
     ["launcher.py"],

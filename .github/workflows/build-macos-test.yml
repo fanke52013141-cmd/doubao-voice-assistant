@@ -27,8 +27,8 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
       VOICE_ASSISTANT_BUNDLE_VERSION: "2.0.1"
-      VOICE_ASSISTANT_BUILD_VERSION: "20102"
-      VOICE_ASSISTANT_PACKAGE_VERSION: "2.0.1-test.2"
+      VOICE_ASSISTANT_BUILD_VERSION: "20103"
+      VOICE_ASSISTANT_PACKAGE_VERSION: "2.0.1-test.3"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -54,12 +54,12 @@ jobs:
           set -euo pipefail
           APP="dist/语音输入助手.app"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")" = "com.fanke.voiceinputassistant"
-          "$APP/Contents/MacOS/VoiceInputAssistant" --server > /tmp/voice-assistant-server.log 2>&1 &
+          PYTHONUNBUFFERED=1 "$APP/Contents/MacOS/VoiceInputAssistant" --server > /tmp/voice-assistant-server.log 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           ready=false
-          for _ in {1..120}; do
-            if curl --fail --silent http://127.0.0.1:56789/ > /dev/null; then
+          for _ in {1..180}; do
+            if curl --max-time 1 --fail --silent http://127.0.0.1:56789/ > /dev/null; then
               ready=true
               break
             fi
@@ -107,6 +107,6 @@ jobs:
             release-artifacts/*.dmg \
             release-artifacts/*.sha256.txt \
             --repo "$GITHUB_REPOSITORY" \
-            --title "语音输入助手 macOS 个人测试版 2.0.1-test.2" \
+            --title "语音输入助手 macOS 个人测试版 2.0.1-test.3" \
             --notes "个人测试版，包含 Apple Silicon 与 Intel 两个 DMG。首次安装步骤见 DMG 内的《安装说明.txt》。本版本使用临时签名，未经 Apple 公证。" \
             --prerelease

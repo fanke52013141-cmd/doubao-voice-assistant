@@ -1,7 +1,12 @@
 import unittest
 from unittest.mock import patch
 
-from network_utils import _ipconfig_candidates, get_local_ip, get_local_ip_candidates
+from network_utils import (
+    _ifconfig_candidates,
+    _ipconfig_candidates,
+    get_local_ip,
+    get_local_ip_candidates,
+)
 
 
 class NetworkUtilsTests(unittest.TestCase):
@@ -29,6 +34,25 @@ Ethernet adapter LAN:
 """
         with patch("subprocess.check_output", return_value=output):
             self.assertEqual(_ipconfig_candidates(), ["192.168.30.70", "10.0.0.9"])
+
+    def test_macos_candidates_do_not_depend_on_hostname_resolution(self):
+        with patch("network_utils.sys.platform", "darwin"), \
+             patch("network_utils._hostname_candidates") as hostname_candidates, \
+             patch("network_utils._route_candidates", return_value=["10.0.0.5"]), \
+             patch("network_utils._ifconfig_candidates", return_value=["192.168.30.70"]):
+            self.assertEqual(get_local_ip_candidates(), ["192.168.30.70", "10.0.0.5"])
+            hostname_candidates.assert_not_called()
+
+    def test_ifconfig_candidates_reads_macos_inet_lines(self):
+        output = """
+lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST>
+    inet 127.0.0.1 netmask 0xff000000
+en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST>
+    inet 192.168.30.70 netmask 0xffffff00 broadcast 192.168.30.255
+"""
+        with patch("network_utils.sys.platform", "darwin"), \
+             patch("subprocess.check_output", return_value=output):
+            self.assertEqual(_ifconfig_candidates(), ["127.0.0.1", "192.168.30.70"])
 
 
 if __name__ == "__main__":
