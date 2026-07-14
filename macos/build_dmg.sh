@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
-PACKAGE_VERSION="${VOICE_ASSISTANT_PACKAGE_VERSION:-2.0.1-test.3}"
+PACKAGE_VERSION="${VOICE_ASSISTANT_PACKAGE_VERSION:-2.0.1-test.4}"
 ARCH="$(uname -m)"
 case "$ARCH" in
   arm64)
