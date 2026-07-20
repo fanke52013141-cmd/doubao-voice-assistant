@@ -1,4 +1,4 @@
-﻿"""
+"""
 语音输入助手 - 桌面客户端
 PyQt5 实现的接收端窗口，默认置顶，精简布局
 支持自动输入到光标所在位置
@@ -167,6 +167,7 @@ def resource_path(relative_path):
 def app_icon_path():
     """Find the app icon in source, packaged resources, or next to the exe."""
     candidates = [
+        resource_path("assets/app-icon.ico"),
         resource_path("voice-assistant-v2.ico"),
         resource_path("语音输入助手.ico"),
         resource_path("icon.ico"),
@@ -177,6 +178,7 @@ def app_icon_path():
             os.path.join(executable_dir, "voice-assistant-v2.ico"),
             os.path.join(executable_dir, "语音输入助手.ico"),
             os.path.join(executable_dir, "icon.ico"),
+            os.path.join(executable_dir, "app-icon.ico"),
         ])
     for candidate in candidates:
         if os.path.exists(candidate):
