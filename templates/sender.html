@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -1154,6 +1154,8 @@
         const HISTORY_LIMIT = 100;
         const AUTOSAVE_ID = 'autosave-draft';
         const MAX_SOCKET_PAYLOAD_CHARS = 45 * 1024 * 1024;
+        const LAST_PC_MESSAGE_ID_STORAGE_KEY = 'voice-sync-last-pc-message-id';
+        const PC_WATERMARK_INITIALIZED_STORAGE_KEY = 'voice-sync-pc-watermark-initialized';
 
         let selectedImages = [];
         let selectedVideos = [];
@@ -1539,20 +1541,64 @@
             if (!historyOverlay.hidden) await renderHistory();
         }
 
+        function loadLastPcMessageId() {
+            try {
+                const saved = localStorage.getItem(LAST_PC_MESSAGE_ID_STORAGE_KEY);
+                const num = Number(saved);
+                return Number.isFinite(num) && num > 0 ? num : 0;
+            } catch (err) {
+                return 0;
+            }
+        }
+
+        function saveLastPcMessageId(id) {
+            const num = Number(id);
+            if (!Number.isFinite(num) || num <= 0) return;
+            try {
+                const current = loadLastPcMessageId();
+                if (num > current) {
+                    localStorage.setItem(LAST_PC_MESSAGE_ID_STORAGE_KEY, String(num));
+                }
+            } catch (err) {}
+        }
+
+        function isPcWatermarkInitialized() {
+            try {
+                return localStorage.getItem(PC_WATERMARK_INITIALIZED_STORAGE_KEY) === '1';
+            } catch (err) {
+                return false;
+            }
+        }
+
+        function markPcWatermarkInitialized() {
+            try {
+                localStorage.setItem(PC_WATERMARK_INITIALIZED_STORAGE_KEY, '1');
+            } catch (err) {}
+        }
+
         async function syncPcMessages() {
             try {
-                const response = await fetch('/api/messages?after=0&limit=100', { cache: 'no-store' });
+                const afterId = loadLastPcMessageId();
+                const response = await fetch(`/api/messages?after=${afterId}&limit=100`, { cache: 'no-store' });
                 const data = await response.json();
                 if (!response.ok || !data.ok || !Array.isArray(data.messages)) return;
+                const watermarkInitialized = isPcWatermarkInitialized();
+                // 首次启用增量水位线时，不把历史消息回填到输入框，避免旧消息反复弹出
+                const shouldFill = watermarkInitialized;
                 for (const message of data.messages) {
-                    await receivePcMessage(message, true);
+                    await receivePcMessage(message, shouldFill);
+                    saveLastPcMessageId(message.id);
                 }
-                const serverRecordIds = new Set(data.messages.map(message => `pc-${message.id}`));
-                const localRecords = await getHistoryRecords();
-                for (const record of localRecords) {
-                    if (record.kind === 'received' && !serverRecordIds.has(record.id)) {
-                        await deleteHistoryRecord(record.id);
+                // 仅在首次初始化（拉取全量）时清理本地多余的 received 记录；增量拉取时不能清理
+                if (!watermarkInitialized) {
+                    const serverRecordIds = new Set(data.messages.map(message => `pc-${message.id}`));
+                    const localRecords = await getHistoryRecords();
+                    for (const record of localRecords) {
+                        if (record.kind === 'received' && !serverRecordIds.has(record.id)) {
+                            await deleteHistoryRecord(record.id);
+                        }
                     }
+                    markPcWatermarkInitialized();
                 }
                 if (!historyOverlay.hidden) await renderHistory();
             } catch (err) {
@@ -1596,6 +1642,7 @@
         });
         socket.on('pc_message', message => {
             receivePcMessage(message, true);
+            saveLastPcMessageId(message.id);
         });
 
         function selectAiRule(ruleId) {
