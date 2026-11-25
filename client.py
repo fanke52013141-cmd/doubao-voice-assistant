@@ -1,4 +1,4 @@
-﻿"""
+"""
 语音输入助手 - 桌面客户端
 PyQt5 实现的接收端窗口，默认置顶，精简布局
 支持自动输入到光标所在位置
@@ -113,17 +113,17 @@ STARTUP_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 MACOS_LAUNCH_AGENT_LABEL = "com.fanke.voiceinputassistant"
 
 UI_COLORS = {
-    "brand": "#7c3aed",
-    "brand_hover": "#6d28d9",
-    "brand_soft": "#f5f3ff",
-    "accent": "#f97316",
+    "brand": "#6d5ae6",
+    "brand_hover": "#5b48d6",
+    "brand_soft": "#f1eefe",
+    "accent": "#f0682a",
     "success": "#16a34a",
     "success_soft": "#dcfce7",
-    "ink": "#0f172a",
-    "muted": "#64748b",
-    "line": "#e2e8f0",
+    "ink": "#111827",
+    "muted": "#6b7280",
+    "line": "#e5e7eb",
     "surface": "#ffffff",
-    "page": "#f5f7fa",
+    "page": "#f4f5f7",
 }
 
 LUCIDE_ICON_PATHS = {
@@ -172,17 +172,17 @@ def resource_path(relative_path):
 def app_icon_path():
     """Find the app icon in source, packaged resources, or next to the exe."""
     candidates = [
+        resource_path("语音输入助手.ico"),
         resource_path("assets/app-icon-v2.png"),
         resource_path("assets/app-icon-256.png"),
         resource_path("voice-assistant-v2.ico"),
-        resource_path("语音输入助手.ico"),
         resource_path("icon.ico"),
     ]
     if getattr(sys, "frozen", False):
         executable_dir = os.path.dirname(sys.executable)
         candidates.extend([
-            os.path.join(executable_dir, "voice-assistant-v2.ico"),
             os.path.join(executable_dir, "语音输入助手.ico"),
+            os.path.join(executable_dir, "voice-assistant-v2.ico"),
             os.path.join(executable_dir, "icon.ico"),
         ])
     for candidate in candidates:
@@ -1040,7 +1040,7 @@ class AiSettingsDialog(QDialog):
                 border-radius: 12px;
                 margin-top: 16px;
                 padding: 12px 12px 10px;
-                font-weight: 800;
+                font-weight: 600;
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
@@ -1102,9 +1102,9 @@ class AiSettingsDialog(QDialog):
                 min-height: 32px;
                 padding: 5px 12px;
                 font-size: {self.font_size}px;
-                font-weight: 700;
+                font-weight: 500;
             }}
-            QPushButton:hover {{ background: #f5f4ff; border-color: #cbc7ff; }}
+            QPushButton:hover {{ background: #f9fafb; border-color: {UI_COLORS['line']}; }}
             QPushButton#primaryButton {{
                 color: #ffffff;
                 background: {UI_COLORS['brand']};
@@ -1172,7 +1172,7 @@ class AiSettingsDialog(QDialog):
             }}
             QLabel#pageTitle {{
                 font-size: {self.font_size + 2}px;
-                font-weight: 700;
+                font-weight: 600;
                 color: {UI_COLORS['ink']};
                 padding-bottom: 8px;
                 border-bottom: 1px solid {UI_COLORS['line']};
@@ -1180,7 +1180,7 @@ class AiSettingsDialog(QDialog):
             }}
             QLabel#fieldLabel {{
                 font-size: {self.font_size}px;
-                font-weight: 700;
+                font-weight: 500;
                 color: {UI_COLORS['ink']};
             }}
             QPushButton#navBtn {{
@@ -1201,7 +1201,7 @@ class AiSettingsDialog(QDialog):
             QPushButton#navBtn[active="true"] {{
                 background: {UI_COLORS['brand_soft']};
                 color: {UI_COLORS['brand']};
-                font-weight: 700;
+                font-weight: 600;
             }}
         """)
 
@@ -1559,7 +1559,7 @@ class VoiceInputWindow(QMainWindow):
                 color: #111827;
                 font-family: 'Inter', 'Noto Sans SC', 'Microsoft YaHei UI', sans-serif;
                 font-size: 28px;
-                font-weight: 700;
+                font-weight: 600;
                 border: none;
             }
         """)
@@ -1601,14 +1601,14 @@ class VoiceInputWindow(QMainWindow):
         self.settings_btn.clicked.connect(self.open_ai_settings)
         self.settings_btn.setStyleSheet("""
             QPushButton {
-                background: #eff6ff;
-                color: #1e40af;
-                border: 1px solid #93c5fd;
-                border-radius: 10px;
+                background: #ffffff;
+                color: #374151;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
                 font-size: 21px;
-                font-weight: 700;
+                font-weight: 500;
             }
-            QPushButton:hover { background: #dbeafe; }
+            QPushButton:hover { background: #f9fafb; }
         """)
         send_bar.addWidget(self.settings_btn)
 
@@ -1646,14 +1646,14 @@ class VoiceInputWindow(QMainWindow):
         self.history_btn.clicked.connect(self.toggle_history_panel)
         self.history_btn.setStyleSheet("""
             QPushButton {
-                background: #dcfce7;
-                color: #14532d;
-                border: 1px solid #86efac;
-                border-radius: 10px;
+                background: #ffffff;
+                color: #374151;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
                 font-size: 21px;
-                font-weight: 700;
+                font-weight: 500;
             }
-            QPushButton:hover { background: #bbf7d0; }
+            QPushButton:hover { background: #f9fafb; }
         """)
         control_bar.addWidget(self.history_btn)
 
@@ -1664,14 +1664,14 @@ class VoiceInputWindow(QMainWindow):
         self.restart_btn.doubleClicked.connect(self.restart_app)
         self.restart_btn.setStyleSheet("""
             QPushButton {
-                background: #fff7ed;
-                color: #9a3412;
-                border: 1px solid #fed7aa;
-                border-radius: 10px;
+                background: #ffffff;
+                color: #374151;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
                 font-size: 21px;
-                font-weight: 700;
+                font-weight: 500;
             }
-            QPushButton:hover { background: #ffedd5; }
+            QPushButton:hover { background: #f9fafb; }
             QPushButton:disabled { color: #9ca3af; background: #f3f4f6; }
         """)
         control_bar.addWidget(self.restart_btn)
@@ -1724,10 +1724,10 @@ class VoiceInputWindow(QMainWindow):
                 border-radius: 12px;
             }}
             QLabel#statusText {{
-                color: {UI_COLORS['success']};
+                color: {UI_COLORS['muted']};
                 background: transparent;
                 border: none;
-                font-weight: 800;
+                font-weight: 500;
             }}
             QFrame#addressDivider {{ color: #e2e8f0; background: #e2e8f0; max-width: 1px; }}
             QPushButton#iconButton {{
@@ -1761,19 +1761,19 @@ class VoiceInputWindow(QMainWindow):
     def expanded_window_height(self):
         return max(720, self.collapsed_window_height() + 570)
 
-    def button_style(self, background, hover, border_color="#e2e8f0", text_color=None, disabled=False):
+    def button_style(self, background, hover, border_color="#e5e7eb", text_color=None, disabled=False):
         disabled_style = ""
         if disabled:
-            disabled_style = "QPushButton:disabled { color: #9ca3af; background: #f3f4f8; border-color: #e2e8f0; }"
-        tc = text_color if text_color else UI_COLORS['ink']
+            disabled_style = "QPushButton:disabled { color: #9ca3af; background: #f3f4f8; border-color: #e5e7eb; }"
+        tc = text_color if text_color else "#374151"
         return f"""
             QPushButton {{
                 background: {background};
                 color: {tc};
                 border: 1px solid {border_color};
-                border-radius: 10px;
+                border-radius: 8px;
                 font-size: {self.font_px(2)}px;
-                font-weight: 700;
+                font-weight: 500;
                 padding: 0 12px;
             }}
             QPushButton:hover {{
@@ -1791,7 +1791,7 @@ class VoiceInputWindow(QMainWindow):
         self.status_dot.setToolTip("已连接" if self.is_connected else "未连接")
         self.status_text.setText("已连接" if self.is_connected else "未连接")
         self.status_text.setStyleSheet(
-            f"color: {color}; font-size: {self.font_px(1)}px; font-weight: 800; border: none;"
+            f"color: {UI_COLORS['muted']}; font-size: {self.font_px(1)}px; font-weight: 500; border: none;"
         )
 
     def apply_pc_font_size_styles(self):
@@ -1807,7 +1807,7 @@ class VoiceInputWindow(QMainWindow):
         self.ip_label.setMinimumWidth(max(560, self.font_px(0) * 22))
         self.ip_label.setStyleSheet(f"""
             QLabel {{
-                color: #334155;
+                color: {UI_COLORS['ink']};
                 font-family: 'Inter', 'Noto Sans SC', 'Microsoft YaHei UI', sans-serif;
                 font-size: {self.font_px(1)}px;
                 font-weight: 600;
@@ -1820,24 +1820,24 @@ class VoiceInputWindow(QMainWindow):
         self.send_input.setStyleSheet(f"""
             QTextEdit {{
                 background: #ffffff;
-                border: 2px solid {UI_COLORS['brand']};
+                border: 1px solid {UI_COLORS['line']};
                 border-radius: 12px;
                 padding: 9px 13px;
                 font-size: {self.font_px(2)}px;
-                color: #111827;
+                color: {UI_COLORS['ink']};
             }}
-            QTextEdit:focus {{ border-color: #5b21b6; background: #fefeff; }}
+            QTextEdit:focus {{ border-color: {UI_COLORS['brand']}; }}
         """)
 
         self.text_display.setFixedHeight(button_height)
         self.text_display.setStyleSheet(f"""
             QTextEdit {{
                 background: #ffffff;
-                border: 1px solid #7c3aed;
+                border: 1px solid {UI_COLORS['line']};
                 border-radius: 12px;
                 padding: 8px 12px;
                 font-size: {self.font_px(2)}px;
-                color: #334155;
+                color: #374151;
             }}
             QScrollBar:vertical {{
                 background: transparent;
@@ -1851,21 +1851,29 @@ class VoiceInputWindow(QMainWindow):
 
         # 附件按钮与“取消置顶”同宽，使上下两个文本框严格对齐。
         self.pc_attachment_btn.setFixedSize(pin_width, send_height)
-        self.pc_attachment_btn.setStyleSheet(
-            self.button_style("#f5f3ff", "#ede9fe", border_color="#c4b5fd", text_color="#5b21b6")
-        )
+        self.pc_attachment_btn.setStyleSheet(self.button_style("#ffffff", "#f9fafb"))
         self.settings_btn.setFixedSize(button_width, send_height)
-        self.settings_btn.setStyleSheet(self.button_style("#eff6ff", "#dbeafe", border_color="#93c5fd", text_color="#1e40af"))
+        self.settings_btn.setStyleSheet(self.button_style("#ffffff", "#f9fafb"))
         self.pc_send_btn.setFixedSize(button_width, send_height)
-        self.pc_send_btn.setStyleSheet(
-            self.button_style("#ffedd5", "#fed7aa", border_color="#fb923c", text_color="#9a3412", disabled=True)
-        )
+        self.pc_send_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {UI_COLORS['brand']};
+                color: #ffffff;
+                border: 1px solid {UI_COLORS['brand']};
+                border-radius: 8px;
+                font-size: {self.font_px(2)}px;
+                font-weight: 500;
+                padding: 0 12px;
+            }}
+            QPushButton:hover {{ background: {UI_COLORS['brand_hover']}; border-color: {UI_COLORS['brand_hover']}; }}
+            QPushButton:disabled {{ color: #9ca3af; background: #f3f4f8; border-color: {UI_COLORS['line']}; }}
+        """)
         self.pin_btn.setFixedSize(pin_width, button_height)
         self.update_pin_style()
         self.history_btn.setFixedSize(button_width, button_height)
-        self.history_btn.setStyleSheet(self.button_style(UI_COLORS["success_soft"], "#bbf7d0", border_color="#86efac", text_color="#14532d"))
+        self.history_btn.setStyleSheet(self.button_style("#ffffff", "#f9fafb"))
         self.restart_btn.setFixedSize(button_width, button_height)
-        self.restart_btn.setStyleSheet(self.button_style("#fff7ed", "#ffedd5", border_color="#fed7aa", text_color="#9a3412", disabled=True))
+        self.restart_btn.setStyleSheet(self.button_style("#ffffff", "#f9fafb", disabled=True))
 
         self.history_scroll.setFixedHeight(max(520, self.font_px(0) * 15))
         window_height = self.expanded_height if self.history_expanded else self.collapsed_height
@@ -1876,10 +1884,10 @@ class VoiceInputWindow(QMainWindow):
     def update_pin_style(self):
         """更新置顶按钮样式"""
         if self.is_pinned:
-            self.pin_btn.setStyleSheet(self.button_style("#f5f3ff", "#ede9fe", border_color="#c4b5fd", text_color="#5b21b6"))
+            self.pin_btn.setStyleSheet(self.button_style("#ffffff", "#f9fafb"))
             self.pin_btn.setText("取消置顶")
         else:
-            self.pin_btn.setStyleSheet(self.button_style("#f5f3ff", "#ede9fe", border_color="#c4b5fd", text_color="#5b21b6"))
+            self.pin_btn.setStyleSheet(self.button_style("#ffffff", "#f9fafb"))
             self.pin_btn.setText("置顶")
     
     def init_socket(self):
@@ -2336,7 +2344,7 @@ class VoiceInputWindow(QMainWindow):
         dialog.setStyleSheet(f"""
             QDialog {{ background: {UI_COLORS['page']}; }}
             QLabel {{ background: transparent; color: {UI_COLORS['ink']}; font-family: 'Microsoft YaHei UI'; }}
-            QLabel#previewTitle {{ font-size: 22px; font-weight: 800; }}
+            QLabel#previewTitle {{ font-size: 22px; font-weight: 600; }}
             QScrollArea#previewScroll {{
                 background: #ffffff;
                 border: 1px solid {UI_COLORS['line']};
@@ -2346,14 +2354,14 @@ class VoiceInputWindow(QMainWindow):
             QPushButton {{
                 min-height: 42px;
                 padding: 0 18px;
-                color: {UI_COLORS['ink']};
+                color: #374151;
                 background: #ffffff;
                 border: 1px solid {UI_COLORS['line']};
-                border-radius: 10px;
+                border-radius: 8px;
                 font-size: 18px;
-                font-weight: 700;
+                font-weight: 500;
             }}
-            QPushButton:hover {{ background: {UI_COLORS['brand_soft']}; border-color: #cbc7ff; }}
+            QPushButton:hover {{ background: #f9fafb; border-color: {UI_COLORS['line']}; }}
             QPushButton#previewClose {{ min-width: 42px; max-width: 42px; padding: 0; }}
             QPushButton#previewDownload {{ color: {UI_COLORS['brand']}; }}
         """)
@@ -2443,13 +2451,13 @@ class VoiceInputWindow(QMainWindow):
         button.setStyleSheet(f"""
             QPushButton {{
                 background: #ffffff;
-                color: {UI_COLORS['brand']};
+                color: #374151;
                 border: 1px solid {UI_COLORS['line']};
                 border-radius: 8px;
                 font-size: {self.font_px(-2)}px;
-                font-weight: 700;
+                font-weight: 500;
             }}
-            QPushButton:hover {{ background: {UI_COLORS['brand_soft']}; border-color: #cbc7ff; }}
+            QPushButton:hover {{ background: #f9fafb; border-color: {UI_COLORS['line']}; }}
         """)
         return button
     
@@ -2491,12 +2499,12 @@ class VoiceInputWindow(QMainWindow):
             self.history_list_layout.addStretch()
     
     def create_history_item(self, record):
-        meta_font = QFont("SimHei")
+        meta_font = QFont("Microsoft YaHei UI")
         meta_font.setPixelSize(self.font_px(4))
-        meta_font.setBold(True)
-        text_font = QFont("SimHei")
+        meta_font.setBold(False)
+        text_font = QFont("Microsoft YaHei UI")
         text_font.setPixelSize(self.font_px(4))
-        text_font.setBold(True)
+        text_font.setBold(False)
         text_lines = 4 if record.get("ai_rule") else 2
         text_height = QFontMetrics(text_font).lineSpacing() * text_lines + 8
         meta_height = QFontMetrics(meta_font).lineSpacing() + 4
@@ -2521,7 +2529,7 @@ class VoiceInputWindow(QMainWindow):
         meta.setFont(meta_font)
         meta.setFixedHeight(meta_height)
         meta.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        meta.setStyleSheet("color: #111827; border: none;")
+        meta.setStyleSheet("color: #6b7280; border: none;")
         layout.addWidget(meta)
         
         text = QTextEdit()
