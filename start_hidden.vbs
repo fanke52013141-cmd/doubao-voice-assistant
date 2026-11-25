@@ -27,9 +27,24 @@ End If
 If pythonExe = "" Then
     If fso.FileExists(venvPythonw) Then
         pythonExe = venvPythonw
-    Else
-        pythonExe = "pythonw.exe"
     End If
+End If
+
+' venv 不可用时，按版本从新到旧回退到本机常用的 Python 安装位置。
+If pythonExe = "" Then
+    localAppData = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%")
+    versions = Array("Python313", "Python312", "Python311", "Python310")
+    For Each ver In versions
+        candidate = fso.BuildPath(localAppData, "Programs\Python\" & ver & "\pythonw.exe")
+        If fso.FileExists(candidate) Then
+            pythonExe = candidate
+            Exit For
+        End If
+    Next
+End If
+
+If pythonExe = "" Then
+    pythonExe = "pythonw.exe"
 End If
 
 shell.CurrentDirectory = baseDir

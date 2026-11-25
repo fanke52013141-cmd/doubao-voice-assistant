@@ -38,7 +38,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=["assets/app-icon.ico"],
+    icon=["语音输入助手.ico"],
 )
 
 coll = COLLECT(

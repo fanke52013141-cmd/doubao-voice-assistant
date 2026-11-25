@@ -13,3 +13,5 @@ env/
 .env
 installer-output/
 macos-output/
+.stitch/
+.stitch.json
