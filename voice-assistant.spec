@@ -8,6 +8,7 @@ a = Analysis(
     datas=[
         ("templates", "templates"),
         ("assets", "assets"),
+        ("语音输入助手.ico", "语音输入助手.ico"),
     ],
     hiddenimports=[
         "engineio.async_drivers.threading",

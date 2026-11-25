@@ -173,6 +173,7 @@ def app_icon_path():
     """Find the app icon in source, packaged resources, or next to the exe."""
     candidates = [
         resource_path("语音输入助手.ico"),
+        resource_path("assets/app-icon.ico"),
         resource_path("assets/app-icon-v2.png"),
         resource_path("assets/app-icon-256.png"),
         resource_path("voice-assistant-v2.ico"),
@@ -184,6 +185,7 @@ def app_icon_path():
             os.path.join(executable_dir, "语音输入助手.ico"),
             os.path.join(executable_dir, "voice-assistant-v2.ico"),
             os.path.join(executable_dir, "icon.ico"),
+            os.path.join(executable_dir, "app-icon.ico"),
         ])
     for candidate in candidates:
         if os.path.exists(candidate):
