@@ -3,13 +3,17 @@ Voice Sync 服务器
 实现手机端与电脑端的实时文本同步
 """
 import os
+import re
 import sys
 import time
 import uuid
+import hmac
+from functools import wraps
 from pathlib import Path
-from flask import Flask, render_template, send_file, jsonify
+from flask import Flask, render_template, send_file, jsonify, make_response
 from flask import request
 from flask_socketio import SocketIO, emit
+from werkzeug.serving import WSGIRequestHandler
 
 from ai_assistant import load_ai_settings, public_ai_button_groups
 from message_store import (
@@ -20,6 +24,17 @@ from message_store import (
     list_messages,
 )
 from network_utils import get_local_ip, get_local_ip_candidates
+from transfer_config import (
+    ALLOWED_IMAGE_EXTENSIONS,
+    ALLOWED_VIDEO_EXTENSIONS,
+    BLOCKED_TRANSFER_EXTENSIONS,
+    MAX_TRANSFER_FILE_BYTES,
+    MAX_TRANSFER_REQUEST_BYTES,
+    PHONE_ACCESS_COOKIE,
+    PHONE_ACCESS_COOKIE_SECONDS,
+    app_data_root,
+    get_phone_access_token,
+)
 
 
 def configure_text_streams():
@@ -39,20 +54,29 @@ def resource_path(relative_path):
     return os.path.join(base_dir, relative_path)
 
 
+PHONE_ACCESS_TOKEN = get_phone_access_token()
 app = Flask(__name__, template_folder=resource_path("templates"))
-app.config['SECRET_KEY'] = 'voice-sync-secret-key'
-app.config['MAX_CONTENT_LENGTH'] = 220 * 1024 * 1024
+app.config['SECRET_KEY'] = PHONE_ACCESS_TOKEN
+app.config['MAX_CONTENT_LENGTH'] = MAX_TRANSFER_REQUEST_BYTES
 UPLOAD_TTL_SECONDS = 24 * 60 * 60
-ALLOWED_VIDEO_EXTENSIONS = {'.mp4', '.webm', '.mov', '.m4v'}
-ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.heic', '.heif'}
-BLOCKED_TRANSFER_EXTENSIONS = {
-    '.exe', '.com', '.bat', '.cmd', '.ps1', '.vbs', '.js', '.jse', '.msi',
-    '.scr', '.dll', '.sys', '.reg', '.lnk', '.url', '.hta',
-}
+
+
+def redact_access_log_text(value):
+    """Keep pairing credentials out of the persistent server log."""
+    return re.sub(r'([?&]token=)[^&\s"]+', r'\1[redacted]', str(value))
+
+
+class RedactingRequestHandler(WSGIRequestHandler):
+    def log(self, log_type, message, *args):
+        super().log(
+            log_type,
+            message,
+            *(redact_access_log_text(value) for value in args),
+        )
 
 
 def upload_dir():
-    root = Path(os.environ.get('APPDATA', os.path.dirname(os.path.abspath(__file__)))) / 'VoiceInputAssistant' / 'uploads'
+    root = app_data_root() / 'uploads'
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -67,15 +91,66 @@ def cleanup_uploads():
             pass
 socketio = SocketIO(
     app,
-    cors_allowed_origins="*",
     async_mode='threading',
     max_http_buffer_size=50 * 1024 * 1024,
 )
 
+
+def is_loopback_request():
+    return request.remote_addr in {'127.0.0.1', '::1'}
+
+
+def supplied_phone_token():
+    return str(request.args.get('token') or request.cookies.get(PHONE_ACCESS_COOKIE) or '')
+
+
+def is_phone_authorized():
+    if is_loopback_request():
+        return True
+    candidate = supplied_phone_token()
+    return bool(candidate) and hmac.compare_digest(candidate, PHONE_ACCESS_TOKEN)
+
+
+def phone_access_required(handler):
+    @wraps(handler)
+    def protected(*args, **kwargs):
+        if not is_phone_authorized():
+            response = jsonify({'ok': False, 'error': 'phone access token required'})
+            response.status_code = 403
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+        return handler(*args, **kwargs)
+    return protected
+
+
+@app.after_request
+def prevent_dynamic_page_caching(response):
+    if request.endpoint in {'sender', 'ai_buttons', 'phone_messages'}:
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
 @app.route('/')
 def sender():
     """手机端发送页面"""
-    return render_template('sender.html')
+    if not is_phone_authorized():
+        return make_response(
+            '访问验证失败，请在电脑端点击复制按钮，使用完整的手机访问地址。',
+            403,
+            {'Content-Type': 'text/plain; charset=utf-8'},
+        )
+    response = make_response(render_template('sender.html'))
+    query_token = str(request.args.get('token') or '')
+    if query_token and hmac.compare_digest(query_token, PHONE_ACCESS_TOKEN):
+        response.set_cookie(
+            PHONE_ACCESS_COOKIE,
+            PHONE_ACCESS_TOKEN,
+            max_age=PHONE_ACCESS_COOKIE_SECONDS,
+            httponly=True,
+            samesite='Lax',
+        )
+    return response
 
 
 @app.route('/favicon.ico')
@@ -90,12 +165,14 @@ def favicon():
 
 
 @app.route('/ai-buttons')
+@phone_access_required
 def ai_buttons():
     """Expose safe AI button metadata to the phone page."""
     return jsonify(public_ai_button_groups(load_ai_settings()))
 
 
 @app.post('/api/uploads')
+@phone_access_required
 def upload_video():
     cleanup_uploads()
     upload = request.files.get('file')
@@ -111,11 +188,6 @@ def upload_video():
         'id': upload_id, 'name': Path(upload.filename).name, 'type': upload.mimetype,
         'size': target.stat().st_size, 'path': str(target),
     }})
-
-
-def is_loopback_request():
-    return request.remote_addr in {'127.0.0.1', '::1'}
-
 
 def clean_original_name(name):
     name = Path(str(name or 'attachment')).name.replace('\x00', '')
@@ -150,16 +222,17 @@ def publish_pc_message():
         return jsonify({'ok': False, 'error': '消息内容不能为空'}), 400
 
     saved = []
+    created_paths = []
     try:
         for upload in uploads:
             original_name, mime_type = validate_pc_upload(upload)
             stored_name, target = allocate_file_name(original_name)
+            created_paths.append(target)
             upload.save(target)
             size = target.stat().st_size
             if size <= 0:
                 raise ValueError(f'附件为空：{original_name}')
-            if size > 200 * 1024 * 1024:
-                target.unlink(missing_ok=True)
+            if size > MAX_TRANSFER_FILE_BYTES:
                 raise ValueError(f'单个附件不能超过 200MB：{original_name}')
             saved.append({
                 'id': Path(stored_name).stem,
@@ -169,28 +242,48 @@ def publish_pc_message():
                 'size': size,
                 'path': target,
             })
-        message = create_message(text, saved)
-        socketio.emit('pc_message', message)
-        cleanup_messages()
-        return jsonify({'ok': True, 'message': message})
     except ValueError as error:
-        for item in saved:
+        for path in created_paths:
             try:
-                item['path'].unlink(missing_ok=True)
+                path.unlink(missing_ok=True)
             except OSError:
                 pass
         return jsonify({'ok': False, 'error': str(error)}), 415
     except Exception as error:
-        for item in saved:
+        for path in created_paths:
             try:
-                item['path'].unlink(missing_ok=True)
+                path.unlink(missing_ok=True)
             except OSError:
                 pass
         print(f'电脑发送到手机失败: {error}', flush=True)
         return jsonify({'ok': False, 'error': '保存消息失败'}), 500
 
+    try:
+        message = create_message(text, saved)
+    except Exception as error:
+        for path in created_paths:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        print(f'电脑发送到手机失败: {error}', flush=True)
+        return jsonify({'ok': False, 'error': '保存消息失败'}), 500
+
+    # The database now owns these files. Notification or retention failures must
+    # not turn a committed message into a record whose attachment returns 404.
+    try:
+        socketio.emit('pc_message', message)
+    except Exception as error:
+        print(f'电脑消息实时通知失败，将等待手机同步: {error}', flush=True)
+    try:
+        cleanup_messages()
+    except Exception as error:
+        print(f'电脑消息清理失败: {error}', flush=True)
+    return jsonify({'ok': True, 'message': message})
+
 
 @app.get('/api/messages')
+@phone_access_required
 def phone_messages():
     """Return persisted PC messages so a phone can catch up after reconnecting."""
     try:
@@ -202,6 +295,7 @@ def phone_messages():
 
 
 @app.get('/api/files/<attachment_id>')
+@phone_access_required
 def shared_attachment(attachment_id):
     """Preview or download an attachment by opaque id, never by filesystem path."""
     if not attachment_id or not all(char in '0123456789abcdef' for char in attachment_id.lower()):
@@ -225,6 +319,8 @@ def shared_attachment(attachment_id):
 @socketio.on('connect')
 def handle_connect():
     """客户端连接"""
+    if not is_phone_authorized():
+        return False
     print('客户端已连接', flush=True)
 
 
@@ -303,14 +399,19 @@ def main():
     print("=" * 50 + "\n")
     
     try:
-        socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)
+        socketio.run(
+            app,
+            host='0.0.0.0',
+            port=port,
+            debug=False,
+            allow_unsafe_werkzeug=True,
+            request_handler=RedactingRequestHandler,
+        )
     except OSError as e:
         if "Address already in use" in str(e) or "[WinError 10048]" in str(e):
             print(f"\nError: Port {port} is already in use!")
             print(f"   请检查是否有其他程序占用了 {port} 端口。")
-            print("   正在尝试清理端口...")
-            import os
-            os.system(f'for /f "tokens=5" %a in (\'netstat -ano ^| findstr ":{port}" ^| findstr "LISTENING"\') do taskkill /F /PID %a')
+            print("   为避免误关其他程序，本应用不会自动结束占用该端口的进程。")
             return 1
         else:
             print(f"\nError: {e}")

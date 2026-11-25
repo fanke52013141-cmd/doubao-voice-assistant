@@ -1,5 +1,5 @@
 #define MyAppName "语音输入助手"
-#define MyAppVersion "2.0.0"
+#define MyAppVersion "2.0.1"
 #define MyAppExeName "VoiceInputAssistant.exe"
 
 [Setup]
@@ -13,7 +13,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=installer-output
 OutputBaseFilename=语音输入助手-{#MyAppVersion}-安装包
-SetupIconFile=assets\app-icon.ico
+SetupIconFile=语音输入助手.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/max
 SolidCompression=yes
@@ -47,6 +47,3 @@ Filename: "{app}\{#MyAppExeName}"; Description: "启动{#MyAppName}"; Flags: now
 
 [UninstallRun]
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""VoiceInputAssistant 56789"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveVoiceAssistantFirewallRule"
-
-[UninstallDelete]
-Type: filesandordirs; Name: "{app}"

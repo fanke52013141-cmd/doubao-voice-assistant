@@ -1,22 +1,21 @@
 """Persistent PC-to-phone messages and downloadable attachments."""
 from __future__ import annotations
 
-import os
 import sqlite3
 import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-
-MESSAGE_RETENTION_SECONDS = 30 * 24 * 60 * 60
-MAX_SHARED_FILE_BYTES = 2 * 1024 * 1024 * 1024
+from transfer_config import (
+    MAX_SHARED_FILE_BYTES,
+    MESSAGE_RETENTION_SECONDS,
+    app_data_root,
+)
 
 
 def data_root() -> Path:
-    root = Path(os.environ.get("APPDATA", os.path.dirname(os.path.abspath(__file__)))) / "VoiceInputAssistant"
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+    return app_data_root()
 
 
 def shared_file_dir() -> Path:

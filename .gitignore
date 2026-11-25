@@ -11,6 +11,7 @@ dist/
 venv/
 env/
 .env
-dist/
-build/
 installer-output/
+macos-output/
+.stitch/
+.stitch.json

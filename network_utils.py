@@ -1,8 +1,10 @@
 """Network helpers for showing the phone-accessible LAN address."""
 import ipaddress
+import os
 import re
 import socket
 import subprocess
+import sys
 
 
 VIRTUAL_OR_UNUSABLE_NETWORKS = (
@@ -90,6 +92,8 @@ def _route_candidates():
 
 def _ipconfig_candidates():
     candidates = []
+    if os.name != "nt":
+        return candidates
     try:
         output = subprocess.check_output(
             ["ipconfig"],
@@ -97,6 +101,7 @@ def _ipconfig_candidates():
             encoding="utf-8",
             errors="ignore",
             stderr=subprocess.DEVNULL,
+            timeout=3,
         )
     except Exception:
         return candidates
@@ -110,10 +115,39 @@ def _ipconfig_candidates():
     return candidates
 
 
+def _ifconfig_candidates():
+    """Read macOS interface addresses without hostname/DNS resolution."""
+    candidates = []
+    if sys.platform != "darwin":
+        return candidates
+    try:
+        output = subprocess.check_output(
+            ["/sbin/ifconfig"],
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+        )
+    except Exception:
+        return candidates
+
+    for match in re.finditer(r"(?:^|\s)inet\s+((?:\d{1,3}\.){3}\d{1,3})\b", output):
+        _add_candidate(candidates, match.group(1))
+    return candidates
+
+
 def get_local_ip_candidates():
     """Return usable LAN IPv4 addresses, excluding loopback and proxy adapters."""
     candidates = []
-    for source in (_hostname_candidates, _route_candidates, _ipconfig_candidates):
+    if sys.platform == "darwin":
+        # Some macOS hosts can block for a long time while resolving their own
+        # hostname. Route and interface inspection are deterministic and do not
+        # depend on local DNS/mDNS being available.
+        sources = (_route_candidates, _ifconfig_candidates)
+    else:
+        sources = (_hostname_candidates, _route_candidates, _ipconfig_candidates)
+    for source in sources:
         for ip in source():
             _add_candidate(candidates, ip)
     usable = [ip for ip in candidates if _is_usable_lan_ip(ip)]

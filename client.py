@@ -10,6 +10,7 @@ import time
 import subprocess
 import json
 import ctypes
+import plistlib
 import http.client
 import mimetypes
 import uuid
@@ -77,6 +78,13 @@ from ai_assistant import (
     test_openai_compatible,
 )
 from network_utils import get_local_ip
+from transfer_config import (
+    BLOCKED_TRANSFER_EXTENSIONS,
+    MAX_TRANSFER_FILE_BYTES,
+    MAX_TRANSFER_SELECTION_BYTES,
+    app_data_root,
+    phone_access_url,
+)
 
 # 配置 pyautogui
 pyautogui.FAILSAFE = False  # 禁用安全角落
@@ -92,10 +100,6 @@ IMAGE_PASTE_MODE_FAST = "fast"
 IMAGE_PASTE_MODE_SAFE = "safe"
 IMAGE_TEXT_PASTE_DELAY_MS = 1000
 TEXT_PASTE_SETTLE_SECONDS = 0.05
-BLOCKED_TRANSFER_EXTENSIONS = {
-    ".exe", ".com", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".jse", ".msi",
-    ".scr", ".dll", ".sys", ".reg", ".lnk", ".url", ".hta",
-}
 WINDOW_TITLE = "语音输入助手"
 APP_USER_MODEL_ID = "DoubaoVoiceAssistant.VoiceInputAssistant"
 HISTORY_LIMIT = 20
@@ -106,19 +110,20 @@ MIN_PC_FONT_SIZE = 18
 MAX_PC_FONT_SIZE = 36
 STARTUP_VALUE_NAME = "VoiceInputAssistant"
 STARTUP_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+MACOS_LAUNCH_AGENT_LABEL = "com.fanke.voiceinputassistant"
 
 UI_COLORS = {
-    "brand": "#7c3aed",
-    "brand_hover": "#6d28d9",
-    "brand_soft": "#f5f3ff",
-    "accent": "#f97316",
+    "brand": "#6d5ae6",
+    "brand_hover": "#5b48d6",
+    "brand_soft": "#f1eefe",
+    "accent": "#f0682a",
     "success": "#16a34a",
     "success_soft": "#dcfce7",
-    "ink": "#0f172a",
-    "muted": "#64748b",
-    "line": "#e2e8f0",
+    "ink": "#111827",
+    "muted": "#6b7280",
+    "line": "#e5e7eb",
     "surface": "#ffffff",
-    "page": "#f5f7fa",
+    "page": "#f4f5f7",
 }
 
 LUCIDE_ICON_PATHS = {
@@ -167,16 +172,18 @@ def resource_path(relative_path):
 def app_icon_path():
     """Find the app icon in source, packaged resources, or next to the exe."""
     candidates = [
-        resource_path("assets/app-icon.ico"),
-        resource_path("voice-assistant-v2.ico"),
         resource_path("语音输入助手.ico"),
+        resource_path("assets/app-icon.ico"),
+        resource_path("assets/app-icon-v2.png"),
+        resource_path("assets/app-icon-256.png"),
+        resource_path("voice-assistant-v2.ico"),
         resource_path("icon.ico"),
     ]
     if getattr(sys, "frozen", False):
         executable_dir = os.path.dirname(sys.executable)
         candidates.extend([
-            os.path.join(executable_dir, "voice-assistant-v2.ico"),
             os.path.join(executable_dir, "语音输入助手.ico"),
+            os.path.join(executable_dir, "voice-assistant-v2.ico"),
             os.path.join(executable_dir, "icon.ico"),
             os.path.join(executable_dir, "app-icon.ico"),
         ])
@@ -197,11 +204,9 @@ def set_windows_app_user_model_id():
 
 
 def runtime_data_dir():
-    """Use AppData for writable files in the packaged app."""
+    """Use a user-writable data folder in the packaged app."""
     if getattr(sys, "frozen", False):
-        path = os.path.join(os.environ.get("APPDATA", os.path.dirname(sys.executable)), "VoiceInputAssistant")
-        os.makedirs(path, exist_ok=True)
-        return path
+        return str(app_data_root())
     return os.path.dirname(os.path.abspath(__file__))
 
 
@@ -308,13 +313,28 @@ def launch_working_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def macos_app_bundle_path(executable=None):
+    """Return the containing .app bundle for a packaged macOS executable."""
+    current = os.path.abspath(executable or sys.executable)
+    marker = ".app" + os.sep
+    marker_index = current.lower().find(marker)
+    if marker_index < 0:
+        return ""
+    return current[:marker_index + len(".app")]
+
+
+def paste_hotkey():
+    """Return the platform-native paste shortcut understood by PyAutoGUI."""
+    return ("command", "v") if sys.platform == "darwin" else ("ctrl", "v")
+
+
 def startup_command_line():
     return subprocess.list2cmdline(launch_command())
 
 
 def spawn_delayed_restart(command, working_dir, delay_seconds=2.5):
     """Relaunch after the current launcher releases its single-instance lock."""
-    if getattr(sys, "frozen", False):
+    if getattr(sys, "frozen", False) and os.name == "nt":
         quoted = subprocess.list2cmdline(command)
         helper = f'ping 127.0.0.1 -n 4 > nul & start "" {quoted}'
         return subprocess.Popen(
@@ -325,6 +345,20 @@ def spawn_delayed_restart(command, working_dir, delay_seconds=2.5):
             stderr=subprocess.DEVNULL,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
             | getattr(subprocess, "DETACHED_PROCESS", 0),
+        )
+
+    if getattr(sys, "frozen", False) and sys.platform == "darwin":
+        app_bundle = macos_app_bundle_path(command[0] if command else None)
+        if not app_bundle:
+            raise RuntimeError("无法确定应用程序安装位置")
+        helper = 'sleep "$1"; /usr/bin/open -n "$2"'
+        return subprocess.Popen(
+            ["/bin/sh", "-c", helper, "voice-assistant-restart", str(delay_seconds), app_bundle],
+            cwd=working_dir,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
 
     pythonw = bundled_pythonw_executable(working_dir)
@@ -362,14 +396,63 @@ def startup_registry_value():
         return ""
 
 
+def macos_launch_agent_path():
+    return os.path.expanduser(
+        f"~/Library/LaunchAgents/{MACOS_LAUNCH_AGENT_LABEL}.plist"
+    )
+
+
+def macos_startup_arguments():
+    if getattr(sys, "frozen", False):
+        app_bundle = macos_app_bundle_path()
+        if not app_bundle:
+            raise RuntimeError("请先把应用拖入“应用程序”文件夹后再设置登录自启")
+        return ["/usr/bin/open", "-g", app_bundle]
+    return launch_command()
+
+
+def macos_startup_enabled():
+    path = macos_launch_agent_path()
+    try:
+        with open(path, "rb") as plist_file:
+            data = plistlib.load(plist_file)
+        return (
+            data.get("Label") == MACOS_LAUNCH_AGENT_LABEL
+            and data.get("ProgramArguments") == macos_startup_arguments()
+        )
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def is_startup_enabled():
+    if sys.platform == "darwin":
+        return macos_startup_enabled()
     value = startup_registry_value().strip()
     return bool(value) and value.lower() == startup_command_line().strip().lower()
 
 
 def set_startup_enabled(enabled):
+    if sys.platform == "darwin":
+        path = macos_launch_agent_path()
+        if not enabled:
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            return
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        payload = {
+            "Label": MACOS_LAUNCH_AGENT_LABEL,
+            "ProgramArguments": macos_startup_arguments(),
+            "RunAtLoad": True,
+        }
+        temporary = f"{path}.{os.getpid()}.tmp"
+        with open(temporary, "wb") as plist_file:
+            plistlib.dump(payload, plist_file, sort_keys=True)
+        os.replace(temporary, path)
+        return
     if os.name != "nt":
-        raise RuntimeError("开机自启只支持 Windows")
+        raise RuntimeError("当前系统暂不支持登录自启")
     import winreg
 
     with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, STARTUP_RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
@@ -762,7 +845,8 @@ class AiSettingsDialog(QDialog):
 
         self.show_title_check = QCheckBox("AI 处理中显示窗口标题")
         self.save_history_check = QCheckBox("记录原始文本和 AI 结果")
-        self.startup_check = QCheckBox("开机自动启动")
+        startup_label = "登录时自动启动" if sys.platform == "darwin" else "开机自动启动"
+        self.startup_check = QCheckBox(startup_label)
         page_behavior_layout.addWidget(self.show_title_check)
         page_behavior_layout.addWidget(self.save_history_check)
         page_behavior_layout.addWidget(self.startup_check)
@@ -958,7 +1042,7 @@ class AiSettingsDialog(QDialog):
                 border-radius: 12px;
                 margin-top: 16px;
                 padding: 12px 12px 10px;
-                font-weight: 800;
+                font-weight: 600;
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
@@ -1020,9 +1104,9 @@ class AiSettingsDialog(QDialog):
                 min-height: 32px;
                 padding: 5px 12px;
                 font-size: {self.font_size}px;
-                font-weight: 700;
+                font-weight: 500;
             }}
-            QPushButton:hover {{ background: #f5f4ff; border-color: #cbc7ff; }}
+            QPushButton:hover {{ background: #f9fafb; border-color: {UI_COLORS['line']}; }}
             QPushButton#primaryButton {{
                 color: #ffffff;
                 background: {UI_COLORS['brand']};
@@ -1090,7 +1174,7 @@ class AiSettingsDialog(QDialog):
             }}
             QLabel#pageTitle {{
                 font-size: {self.font_size + 2}px;
-                font-weight: 700;
+                font-weight: 600;
                 color: {UI_COLORS['ink']};
                 padding-bottom: 8px;
                 border-bottom: 1px solid {UI_COLORS['line']};
@@ -1098,7 +1182,7 @@ class AiSettingsDialog(QDialog):
             }}
             QLabel#fieldLabel {{
                 font-size: {self.font_size}px;
-                font-weight: 700;
+                font-weight: 500;
                 color: {UI_COLORS['ink']};
             }}
             QPushButton#navBtn {{
@@ -1119,7 +1203,7 @@ class AiSettingsDialog(QDialog):
             QPushButton#navBtn[active="true"] {{
                 background: {UI_COLORS['brand_soft']};
                 color: {UI_COLORS['brand']};
-                font-weight: 700;
+                font-weight: 600;
             }}
         """)
 
@@ -1371,9 +1455,7 @@ class DoubleClickButton(QPushButton):
         if self._skip_release_after_double_click:
             self._skip_release_after_double_click = False
             return
-        app = QApplication.instance()
-        interval = app.doubleClickInterval() if app else 400
-        self._single_click_timer.start(interval)
+        self._single_click_timer.start(self.click_interval())
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -1383,6 +1465,22 @@ class DoubleClickButton(QPushButton):
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            if self._single_click_timer.isActive():
+                self._single_click_timer.stop()
+                self.doubleClicked.emit()
+            else:
+                self._single_click_timer.start(self.click_interval())
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    @staticmethod
+    def click_interval():
+        app = QApplication.instance()
+        return app.doubleClickInterval() if app else 400
 
 
 class VoiceInputWindow(QMainWindow):
@@ -1455,6 +1553,7 @@ class VoiceInputWindow(QMainWindow):
         # 显示手机端访问地址
         local_ip = get_local_ip()
         self.access_url = f"http://{local_ip}:56789"
+        self.secure_access_url = phone_access_url(local_ip)
         self.ip_label = QLabel(f"地址：{self.access_url}")
         self.ip_label.setMinimumWidth(780)
         self.ip_label.setStyleSheet("""
@@ -1462,11 +1561,11 @@ class VoiceInputWindow(QMainWindow):
                 color: #111827;
                 font-family: 'Inter', 'Noto Sans SC', 'Microsoft YaHei UI', sans-serif;
                 font-size: 28px;
-                font-weight: 700;
+                font-weight: 600;
                 border: none;
             }
         """)
-        self.ip_label.setToolTip("点击复制手机访问地址")
+        self.ip_label.setToolTip("点击复制包含安全配对信息的手机访问地址")
         self.ip_label.setCursor(Qt.PointingHandCursor)
         self.ip_label.mousePressEvent = lambda e: self.copy_ip(local_ip)
         address_bar.addWidget(self.ip_label, 1)
@@ -1475,7 +1574,7 @@ class VoiceInputWindow(QMainWindow):
         self.copy_address_btn.setObjectName("iconButton")
         self.copy_address_btn.setIcon(lucide_icon("copy", UI_COLORS["brand"], 22))
         self.copy_address_btn.setIconSize(QSize(22, 22))
-        self.copy_address_btn.setToolTip("复制手机访问地址")
+        self.copy_address_btn.setToolTip("复制包含安全配对信息的手机访问地址")
         self.copy_address_btn.clicked.connect(lambda: self.copy_ip(local_ip))
         address_bar.addWidget(self.copy_address_btn)
         layout.addWidget(self.address_card)
@@ -1504,14 +1603,14 @@ class VoiceInputWindow(QMainWindow):
         self.settings_btn.clicked.connect(self.open_ai_settings)
         self.settings_btn.setStyleSheet("""
             QPushButton {
-                background: #eff6ff;
-                color: #1e40af;
-                border: 1px solid #93c5fd;
-                border-radius: 10px;
+                background: #ffffff;
+                color: #374151;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
                 font-size: 21px;
-                font-weight: 700;
+                font-weight: 500;
             }
-            QPushButton:hover { background: #dbeafe; }
+            QPushButton:hover { background: #f9fafb; }
         """)
         send_bar.addWidget(self.settings_btn)
 
@@ -1549,14 +1648,14 @@ class VoiceInputWindow(QMainWindow):
         self.history_btn.clicked.connect(self.toggle_history_panel)
         self.history_btn.setStyleSheet("""
             QPushButton {
-                background: #dcfce7;
-                color: #14532d;
-                border: 1px solid #86efac;
-                border-radius: 10px;
+                background: #ffffff;
+                color: #374151;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
                 font-size: 21px;
-                font-weight: 700;
+                font-weight: 500;
             }
-            QPushButton:hover { background: #bbf7d0; }
+            QPushButton:hover { background: #f9fafb; }
         """)
         control_bar.addWidget(self.history_btn)
 
@@ -1567,14 +1666,14 @@ class VoiceInputWindow(QMainWindow):
         self.restart_btn.doubleClicked.connect(self.restart_app)
         self.restart_btn.setStyleSheet("""
             QPushButton {
-                background: #fff7ed;
-                color: #9a3412;
-                border: 1px solid #fed7aa;
-                border-radius: 10px;
+                background: #ffffff;
+                color: #374151;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
                 font-size: 21px;
-                font-weight: 700;
+                font-weight: 500;
             }
-            QPushButton:hover { background: #ffedd5; }
+            QPushButton:hover { background: #f9fafb; }
             QPushButton:disabled { color: #9ca3af; background: #f3f4f6; }
         """)
         control_bar.addWidget(self.restart_btn)
@@ -1627,10 +1726,10 @@ class VoiceInputWindow(QMainWindow):
                 border-radius: 12px;
             }}
             QLabel#statusText {{
-                color: {UI_COLORS['success']};
+                color: {UI_COLORS['muted']};
                 background: transparent;
                 border: none;
-                font-weight: 800;
+                font-weight: 500;
             }}
             QFrame#addressDivider {{ color: #e2e8f0; background: #e2e8f0; max-width: 1px; }}
             QPushButton#iconButton {{
@@ -1664,19 +1763,19 @@ class VoiceInputWindow(QMainWindow):
     def expanded_window_height(self):
         return max(720, self.collapsed_window_height() + 570)
 
-    def button_style(self, background, hover, border_color="#e2e8f0", text_color=None, disabled=False):
+    def button_style(self, background, hover, border_color="#e5e7eb", text_color=None, disabled=False):
         disabled_style = ""
         if disabled:
-            disabled_style = "QPushButton:disabled { color: #9ca3af; background: #f3f4f8; border-color: #e2e8f0; }"
-        tc = text_color if text_color else UI_COLORS['ink']
+            disabled_style = "QPushButton:disabled { color: #9ca3af; background: #f3f4f8; border-color: #e5e7eb; }"
+        tc = text_color if text_color else "#374151"
         return f"""
             QPushButton {{
                 background: {background};
                 color: {tc};
                 border: 1px solid {border_color};
-                border-radius: 10px;
+                border-radius: 8px;
                 font-size: {self.font_px(2)}px;
-                font-weight: 700;
+                font-weight: 500;
                 padding: 0 12px;
             }}
             QPushButton:hover {{
@@ -1694,7 +1793,7 @@ class VoiceInputWindow(QMainWindow):
         self.status_dot.setToolTip("已连接" if self.is_connected else "未连接")
         self.status_text.setText("已连接" if self.is_connected else "未连接")
         self.status_text.setStyleSheet(
-            f"color: {color}; font-size: {self.font_px(1)}px; font-weight: 800; border: none;"
+            f"color: {UI_COLORS['muted']}; font-size: {self.font_px(1)}px; font-weight: 500; border: none;"
         )
 
     def apply_pc_font_size_styles(self):
@@ -1710,7 +1809,7 @@ class VoiceInputWindow(QMainWindow):
         self.ip_label.setMinimumWidth(max(560, self.font_px(0) * 22))
         self.ip_label.setStyleSheet(f"""
             QLabel {{
-                color: #334155;
+                color: {UI_COLORS['ink']};
                 font-family: 'Inter', 'Noto Sans SC', 'Microsoft YaHei UI', sans-serif;
                 font-size: {self.font_px(1)}px;
                 font-weight: 600;
@@ -1723,24 +1822,24 @@ class VoiceInputWindow(QMainWindow):
         self.send_input.setStyleSheet(f"""
             QTextEdit {{
                 background: #ffffff;
-                border: 2px solid {UI_COLORS['brand']};
+                border: 1px solid {UI_COLORS['line']};
                 border-radius: 12px;
                 padding: 9px 13px;
                 font-size: {self.font_px(2)}px;
-                color: #111827;
+                color: {UI_COLORS['ink']};
             }}
-            QTextEdit:focus {{ border-color: #5b21b6; background: #fefeff; }}
+            QTextEdit:focus {{ border-color: {UI_COLORS['brand']}; }}
         """)
 
         self.text_display.setFixedHeight(button_height)
         self.text_display.setStyleSheet(f"""
             QTextEdit {{
                 background: #ffffff;
-                border: 1px solid #7c3aed;
+                border: 1px solid {UI_COLORS['line']};
                 border-radius: 12px;
                 padding: 8px 12px;
                 font-size: {self.font_px(2)}px;
-                color: #334155;
+                color: #374151;
             }}
             QScrollBar:vertical {{
                 background: transparent;
@@ -1754,21 +1853,29 @@ class VoiceInputWindow(QMainWindow):
 
         # 附件按钮与“取消置顶”同宽，使上下两个文本框严格对齐。
         self.pc_attachment_btn.setFixedSize(pin_width, send_height)
-        self.pc_attachment_btn.setStyleSheet(
-            self.button_style("#f5f3ff", "#ede9fe", border_color="#c4b5fd", text_color="#5b21b6")
-        )
+        self.pc_attachment_btn.setStyleSheet(self.button_style("#ffffff", "#f9fafb"))
         self.settings_btn.setFixedSize(button_width, send_height)
-        self.settings_btn.setStyleSheet(self.button_style("#eff6ff", "#dbeafe", border_color="#93c5fd", text_color="#1e40af"))
+        self.settings_btn.setStyleSheet(self.button_style("#ffffff", "#f9fafb"))
         self.pc_send_btn.setFixedSize(button_width, send_height)
-        self.pc_send_btn.setStyleSheet(
-            self.button_style("#ffedd5", "#fed7aa", border_color="#fb923c", text_color="#9a3412", disabled=True)
-        )
+        self.pc_send_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {UI_COLORS['brand']};
+                color: #ffffff;
+                border: 1px solid {UI_COLORS['brand']};
+                border-radius: 8px;
+                font-size: {self.font_px(2)}px;
+                font-weight: 500;
+                padding: 0 12px;
+            }}
+            QPushButton:hover {{ background: {UI_COLORS['brand_hover']}; border-color: {UI_COLORS['brand_hover']}; }}
+            QPushButton:disabled {{ color: #9ca3af; background: #f3f4f8; border-color: {UI_COLORS['line']}; }}
+        """)
         self.pin_btn.setFixedSize(pin_width, button_height)
         self.update_pin_style()
         self.history_btn.setFixedSize(button_width, button_height)
-        self.history_btn.setStyleSheet(self.button_style(UI_COLORS["success_soft"], "#bbf7d0", border_color="#86efac", text_color="#14532d"))
+        self.history_btn.setStyleSheet(self.button_style("#ffffff", "#f9fafb"))
         self.restart_btn.setFixedSize(button_width, button_height)
-        self.restart_btn.setStyleSheet(self.button_style("#fff7ed", "#ffedd5", border_color="#fed7aa", text_color="#9a3412", disabled=True))
+        self.restart_btn.setStyleSheet(self.button_style("#ffffff", "#f9fafb", disabled=True))
 
         self.history_scroll.setFixedHeight(max(520, self.font_px(0) * 15))
         window_height = self.expanded_height if self.history_expanded else self.collapsed_height
@@ -1779,10 +1886,10 @@ class VoiceInputWindow(QMainWindow):
     def update_pin_style(self):
         """更新置顶按钮样式"""
         if self.is_pinned:
-            self.pin_btn.setStyleSheet(self.button_style("#f5f3ff", "#ede9fe", border_color="#c4b5fd", text_color="#5b21b6"))
+            self.pin_btn.setStyleSheet(self.button_style("#ffffff", "#f9fafb"))
             self.pin_btn.setText("取消置顶")
         else:
-            self.pin_btn.setStyleSheet(self.button_style("#f5f3ff", "#ede9fe", border_color="#c4b5fd", text_color="#5b21b6"))
+            self.pin_btn.setStyleSheet(self.button_style("#ffffff", "#f9fafb"))
             self.pin_btn.setText("置顶")
     
     def init_socket(self):
@@ -1809,12 +1916,12 @@ class VoiceInputWindow(QMainWindow):
                 self.text_display.setText(f"出于安全原因不能传输此类程序文件：{os.path.basename(path)}")
                 return
             size = os.path.getsize(path)
-            if size > 200 * 1024 * 1024:
+            if size > MAX_TRANSFER_FILE_BYTES:
                 self.text_display.setText(f"单个附件不能超过 200MB：{os.path.basename(path)}")
                 return
             total_size += size
             valid.append(path)
-        if total_size > 210 * 1024 * 1024:
+        if total_size > MAX_TRANSFER_SELECTION_BYTES:
             self.text_display.setText("一次发送的附件总量不能超过 210MB，请分批发送。")
             return
         self.selected_pc_files = valid
@@ -2113,12 +2220,12 @@ class VoiceInputWindow(QMainWindow):
         )
         QApplication.clipboard().setImage(qimage)
         QApplication.processEvents()
-        pyautogui.hotkey('ctrl', 'v')
+        pyautogui.hotkey(*paste_hotkey())
         time.sleep(delay_seconds)
         return True
 
     def paste_video_files(self, videos):
-        """Place uploaded videos on the Windows clipboard as real files."""
+        """Place uploaded videos on the system clipboard as real files."""
         paths = [video.get('path') for video in (videos or [])
                  if isinstance(video, dict) and os.path.isfile(video.get('path', ''))]
         if not paths:
@@ -2127,7 +2234,7 @@ class VoiceInputWindow(QMainWindow):
         mime.setUrls([QUrl.fromLocalFile(path) for path in paths])
         QApplication.clipboard().setMimeData(mime)
         QApplication.processEvents()
-        pyautogui.hotkey('ctrl', 'v')
+        pyautogui.hotkey(*paste_hotkey())
         time.sleep(1.5)
         log_client_event(f"pasted video files={len(paths)}")
         return len(paths)
@@ -2239,7 +2346,7 @@ class VoiceInputWindow(QMainWindow):
         dialog.setStyleSheet(f"""
             QDialog {{ background: {UI_COLORS['page']}; }}
             QLabel {{ background: transparent; color: {UI_COLORS['ink']}; font-family: 'Microsoft YaHei UI'; }}
-            QLabel#previewTitle {{ font-size: 22px; font-weight: 800; }}
+            QLabel#previewTitle {{ font-size: 22px; font-weight: 600; }}
             QScrollArea#previewScroll {{
                 background: #ffffff;
                 border: 1px solid {UI_COLORS['line']};
@@ -2249,14 +2356,14 @@ class VoiceInputWindow(QMainWindow):
             QPushButton {{
                 min-height: 42px;
                 padding: 0 18px;
-                color: {UI_COLORS['ink']};
+                color: #374151;
                 background: #ffffff;
                 border: 1px solid {UI_COLORS['line']};
-                border-radius: 10px;
+                border-radius: 8px;
                 font-size: 18px;
-                font-weight: 700;
+                font-weight: 500;
             }}
-            QPushButton:hover {{ background: {UI_COLORS['brand_soft']}; border-color: #cbc7ff; }}
+            QPushButton:hover {{ background: #f9fafb; border-color: {UI_COLORS['line']}; }}
             QPushButton#previewClose {{ min-width: 42px; max-width: 42px; padding: 0; }}
             QPushButton#previewDownload {{ color: {UI_COLORS['brand']}; }}
         """)
@@ -2346,13 +2453,13 @@ class VoiceInputWindow(QMainWindow):
         button.setStyleSheet(f"""
             QPushButton {{
                 background: #ffffff;
-                color: {UI_COLORS['brand']};
+                color: #374151;
                 border: 1px solid {UI_COLORS['line']};
                 border-radius: 8px;
                 font-size: {self.font_px(-2)}px;
-                font-weight: 700;
+                font-weight: 500;
             }}
-            QPushButton:hover {{ background: {UI_COLORS['brand_soft']}; border-color: #cbc7ff; }}
+            QPushButton:hover {{ background: #f9fafb; border-color: {UI_COLORS['line']}; }}
         """)
         return button
     
@@ -2394,12 +2501,12 @@ class VoiceInputWindow(QMainWindow):
             self.history_list_layout.addStretch()
     
     def create_history_item(self, record):
-        meta_font = QFont("SimHei")
+        meta_font = QFont("Microsoft YaHei UI")
         meta_font.setPixelSize(self.font_px(4))
-        meta_font.setBold(True)
-        text_font = QFont("SimHei")
+        meta_font.setBold(False)
+        text_font = QFont("Microsoft YaHei UI")
         text_font.setPixelSize(self.font_px(4))
-        text_font.setBold(True)
+        text_font.setBold(False)
         text_lines = 4 if record.get("ai_rule") else 2
         text_height = QFontMetrics(text_font).lineSpacing() * text_lines + 8
         meta_height = QFontMetrics(meta_font).lineSpacing() + 4
@@ -2424,7 +2531,7 @@ class VoiceInputWindow(QMainWindow):
         meta.setFont(meta_font)
         meta.setFixedHeight(meta_height)
         meta.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        meta.setStyleSheet("color: #111827; border: none;")
+        meta.setStyleSheet("color: #6b7280; border: none;")
         layout.addWidget(meta)
         
         text = QTextEdit()
@@ -2557,7 +2664,7 @@ class VoiceInputWindow(QMainWindow):
     def paste_text(self, text):
         """把文字放入系统剪贴板并粘贴到当前光标位置。"""
         pyperclip.copy(text)
-        pyautogui.hotkey('ctrl', 'v')
+        pyautogui.hotkey(*paste_hotkey())
         time.sleep(TEXT_PASTE_SETTLE_SECONDS)
     
     def normalize_image_delay_ms(self, value):
@@ -2750,10 +2857,10 @@ class VoiceInputWindow(QMainWindow):
     
     def copy_ip(self, ip):
         """复制IP地址"""
-        url = f"http://{ip}:56789"
+        url = getattr(self, "secure_access_url", phone_access_url(ip))
         QApplication.clipboard().setText(url)
         self.ip_label.setText("已复制!")
-        QTimer.singleShot(1000, lambda: self.ip_label.setText(f"地址: {url}"))
+        QTimer.singleShot(1000, lambda: self.ip_label.setText(f"地址：{self.access_url}"))
     
     def closeEvent(self, event):
         """关闭事件"""

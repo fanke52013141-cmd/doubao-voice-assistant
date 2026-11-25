@@ -8,6 +8,7 @@ a = Analysis(
     datas=[
         ("templates", "templates"),
         ("assets", "assets"),
+        ("语音输入助手.ico", "语音输入助手.ico"),
     ],
     hiddenimports=[
         "engineio.async_drivers.threading",
@@ -38,7 +39,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=["assets/app-icon.ico"],
+    icon=["语音输入助手.ico"],
 )
 
 coll = COLLECT(

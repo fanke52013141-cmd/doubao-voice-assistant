@@ -12,6 +12,8 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 
+from transfer_config import app_data_root
+
 
 AI_SETTINGS_FILE = "ai-settings.json"
 AI_LOG_FILE = "ai-assistant.log"
@@ -152,14 +154,9 @@ DEFAULT_AI_SETTINGS = {
 
 
 def runtime_data_dir():
-    """Use AppData for writable files in the packaged app."""
+    """Use a user-writable data folder in the packaged app."""
     if getattr(sys, "frozen", False):
-        path = os.path.join(
-            os.environ.get("APPDATA", os.path.dirname(sys.executable)),
-            "VoiceInputAssistant",
-        )
-        os.makedirs(path, exist_ok=True)
-        return path
+        return str(app_data_root())
     return os.path.dirname(os.path.abspath(__file__))
 
 
@@ -339,6 +336,8 @@ def public_ai_buttons(settings):
 def public_ai_button_groups(settings):
     """Return phone-safe folder/button metadata while retaining old flat clients."""
     normalized = normalize_ai_settings(settings)
+    api = normalized.get("api", {})
+    configured = bool(api.get("api_key") and api.get("model"))
     buttons = public_ai_buttons(normalized)
     rule_by_id = {rule.get("id"): rule for rule in normalized.get("rules", [])}
     grouped = {folder["id"]: {**folder, "buttons": []} for folder in normalized.get("rule_folders", [])}
@@ -350,7 +349,20 @@ def public_ai_button_groups(settings):
         else:
             uncategorized.append(button)
     folders = [folder for folder in grouped.values() if folder["buttons"]]
-    return {"version": 2, "folders": folders, "uncategorized": uncategorized, "buttons": buttons}
+    if not configured:
+        status_message = "AI未配置，请在电脑端设置API密钥和模型"
+    elif not buttons:
+        status_message = "电脑端没有启用可显示的AI按钮"
+    else:
+        status_message = ""
+    return {
+        "version": 2,
+        "configured": configured,
+        "status_message": status_message,
+        "folders": folders,
+        "uncategorized": uncategorized,
+        "buttons": buttons,
+    }
 
 
 def load_ai_settings():

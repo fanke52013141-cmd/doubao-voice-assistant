@@ -995,6 +995,43 @@
             flex-shrink: 0 !important;
         }
 
+        /* ============================================================
+           简约化皮肤层（只追加，不修改上方任何规则）
+           仅调整观感：去渐变 / 降字重 / 弱投影。
+           不包含任何 flex、间距、高度、滚动等排版属性。
+           ============================================================ */
+        .btn-paste { background: #7c3aed; }
+        .btn-paste.done { background: #16a34a; }
+        .btn-send { background: #f97316; }
+        .btn-send.done { background: #16a34a; }
+        .btn-action {
+            font-weight: 600;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+        }
+        .ai-mode-button { font-weight: 500; }
+        .status { font-weight: 500; }
+        .height-btn, .height-ok { font-weight: 500; }
+        .btn-image { font-weight: 500; }
+        .image-count-badge { font-weight: 500; }
+        .paste-mode-btn { font-weight: 500; }
+        .history-title, .image-panel-title { font-weight: 600; }
+        .history-close, .image-panel-action { font-weight: 500; }
+        .history-action { font-weight: 500; }
+        .history-download, .history-share { font-weight: 500; }
+        .history-file-name { font-weight: 500; }
+        .history-badge { font-weight: 500; }
+        input:checked + .toggle-slider { background: #7c3aed; }
+        .paste-mode-btn.active {
+            color: #ffffff;
+            background: #7c3aed;
+            border-color: #7c3aed;
+        }
+        .paste-mode-btn.safe.active {
+            color: #ffffff;
+            background: #0d9488;
+            border-color: #0d9488;
+        }
+
     </style>
 </head>
 <body>
@@ -1154,8 +1191,13 @@
         const HISTORY_LIMIT = 100;
         const AUTOSAVE_ID = 'autosave-draft';
         const MAX_SOCKET_PAYLOAD_CHARS = 45 * 1024 * 1024;
+        const MAX_DIRECT_SHARE_BYTES = 50 * 1024 * 1024;
         const LAST_PC_MESSAGE_ID_STORAGE_KEY = 'voice-sync-last-pc-message-id';
         const PC_WATERMARK_INITIALIZED_STORAGE_KEY = 'voice-sync-pc-watermark-initialized';
+
+        if (new URLSearchParams(window.location.search).has('token')) {
+            window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
+        }
 
         let selectedImages = [];
         let selectedVideos = [];
@@ -1171,6 +1213,7 @@
         let lastAutosaveSignature = '';
         let aiButtons = [];
         let aiFolders = [];
+        let aiStatusMessage = '';
         let activeAiFolderId = '';
         let selectedAiRuleId = '';
         let pendingPcMessages = [];
@@ -1503,6 +1546,20 @@
             });
         }
 
+        async function fillPcTextInput(text) {
+            if (!text) return;
+            await preserveDraftBeforePcFill(text);
+            textInput.value = text;
+            draftText = text;
+            await deleteHistoryRecord(AUTOSAVE_ID);
+            lastAutosaveSignature = recordSignature(text, []);
+            try {
+                textInput.focus({ preventScroll: true });
+            } catch (err) {
+                textInput.focus();
+            }
+        }
+
         async function receivePcMessage(message, fillInput = true) {
             if (!message || !message.id) return;
             if (!historyReady) {
@@ -1527,18 +1584,21 @@
                 updatedAt: createdAt,
             });
             if (fillInput && !existing && text) {
-                await preserveDraftBeforePcFill(text);
-                textInput.value = text;
-                draftText = text;
-                await deleteHistoryRecord(AUTOSAVE_ID);
-                lastAutosaveSignature = recordSignature(text, []);
-                try {
-                    textInput.focus({ preventScroll: true });
-                } catch (err) {
-                    textInput.focus();
-                }
+                await fillPcTextInput(text);
             }
             if (!historyOverlay.hidden) await renderHistory();
+            return { isNew: !existing, text };
+        }
+
+        async function receivePcMessageBatch(items) {
+            let latestUnseenText = '';
+            for (const item of items) {
+                const result = await receivePcMessage(item.message, false);
+                if (item.fillInput !== false && result && result.isNew && result.text) {
+                    latestUnseenText = result.text;
+                }
+            }
+            if (latestUnseenText) await fillPcTextInput(latestUnseenText);
         }
 
         function loadLastPcMessageId() {
@@ -1577,6 +1637,7 @@
         }
 
         async function syncPcMessages() {
+            if (!historyReady) return;
             try {
                 const afterId = loadLastPcMessageId();
                 const response = await fetch(`/api/messages?after=${afterId}&limit=100`, { cache: 'no-store' });
@@ -1585,8 +1646,8 @@
                 const watermarkInitialized = isPcWatermarkInitialized();
                 // 首次启用增量水位线时，不把历史消息回填到输入框，避免旧消息反复弹出
                 const shouldFill = watermarkInitialized;
+                await receivePcMessageBatch(data.messages.map(message => ({ message, fillInput: shouldFill })));
                 for (const message of data.messages) {
-                    await receivePcMessage(message, shouldFill);
                     saveLastPcMessageId(message.id);
                 }
                 // 仅在首次初始化（拉取全量）时清理本地多余的 received 记录；增量拉取时不能清理
@@ -1655,7 +1716,13 @@
             aiModeSection.innerHTML = '';
             if (!aiButtons.length) {
                 selectedAiRuleId = '';
-                aiModeSection.hidden = true;
+                aiModeSection.hidden = false;
+                const status = document.createElement('button');
+                status.type = 'button';
+                status.className = 'ai-mode-button';
+                status.textContent = aiStatusMessage || 'AI未配置或没有启用按钮';
+                status.disabled = true;
+                aiModeSection.appendChild(status);
                 return;
             }
             aiModeSection.hidden = false;
@@ -1707,6 +1774,7 @@
                 const data = await response.json();
                 aiButtons = Array.isArray(data.buttons) ? data.buttons : [];
                 aiFolders = Array.isArray(data.folders) ? data.folders : [];
+                aiStatusMessage = String(data.status_message || '');
                 const groupedIds = new Set(aiFolders.flatMap(folder => folder.buttons.map(rule => rule.id)));
                 aiButtons = aiButtons.map(rule => ({ ...rule, folder_id: groupedIds.has(rule.id) ? 'grouped' : '' }));
                 if (selectedAiRuleId && !aiButtons.some(rule => rule.id === selectedAiRuleId)) {
@@ -1715,6 +1783,7 @@
             } catch (err) {
                 console.warn('AI按钮加载失败', err);
                 aiButtons = [];
+                aiStatusMessage = 'AI按钮加载失败，请检查电脑连接';
                 selectedAiRuleId = '';
             }
             renderAiButtons();
@@ -1936,6 +2005,14 @@
             button.disabled = true;
             button.textContent = '准备中';
             try {
+                if (!navigator.share || attachment.size > MAX_DIRECT_SHARE_BYTES) {
+                    triggerAttachmentDownload(attachment);
+                    const reason = attachment.size > MAX_DIRECT_SHARE_BYTES
+                        ? '文件较大，为避免手机卡顿，已改为下载。'
+                        : '当前浏览器不能直接打开分享面板，文件已开始下载。';
+                    alert(`${reason}下载后可在微信中选择文件发送。`);
+                    return;
+                }
                 const response = await fetch(attachment.download_url, { cache: 'no-store' });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const blob = await response.blob();
@@ -1943,7 +2020,7 @@
                     type: attachment.type || blob.type || 'application/octet-stream',
                 });
                 const shareData = { files: [file], title: '转发文件' };
-                const canShareFiles = navigator.share && (!navigator.canShare || navigator.canShare(shareData));
+                const canShareFiles = !navigator.canShare || navigator.canShare(shareData);
                 if (canShareFiles) {
                     await navigator.share(shareData);
                 } else {
@@ -2318,9 +2395,7 @@
                 historyReady = true;
                 const queued = pendingPcMessages;
                 pendingPcMessages = [];
-                for (const item of queued) {
-                    await receivePcMessage(item.message, item.fillInput);
-                }
+                await receivePcMessageBatch(queued);
                 await syncPcMessages();
                 setInterval(saveAutosaveRecord, 1000);
             } catch (err) {

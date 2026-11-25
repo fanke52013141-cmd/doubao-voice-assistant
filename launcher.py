@@ -12,6 +12,8 @@ import subprocess
 import sys
 import time
 
+from transfer_config import app_data_root
+
 
 APP_NAME = "语音输入助手"
 PORT = 56789
@@ -21,11 +23,7 @@ BASE_DIR = (
     if getattr(sys, "frozen", False)
     else os.path.dirname(os.path.abspath(__file__))
 )
-RUNTIME_DIR = (
-    os.path.join(os.environ.get("APPDATA", BASE_DIR), "VoiceInputAssistant")
-    if getattr(sys, "frozen", False)
-    else BASE_DIR
-)
+RUNTIME_DIR = str(app_data_root()) if getattr(sys, "frozen", False) else BASE_DIR
 os.makedirs(RUNTIME_DIR, exist_ok=True)
 SERVER_LOG = os.path.join(RUNTIME_DIR, "voice-sync-server.log")
 FIREWALL_RULE_NAME = f"VoiceInputAssistant {PORT}"
@@ -61,37 +59,79 @@ def hidden_runner_path():
 
 
 def show_error(message):
-    """Show a Windows message box when there is no console to print to."""
-    try:
-        ctypes.windll.user32.MessageBoxW(0, message, APP_NAME, 0x10)
-    except Exception:
-        pass
+    """Show a native error dialog when there is no console to print to."""
+    if os.name == "nt":
+        try:
+            ctypes.windll.user32.MessageBoxW(0, message, APP_NAME, 0x10)
+            return
+        except Exception:
+            pass
+    if sys.platform == "darwin":
+        try:
+            script = (
+                'on run argv\n'
+                f'  display alert "{APP_NAME}" message (item 1 of argv) as critical\n'
+                'end run'
+            )
+            subprocess.run(
+                [
+                    "/usr/bin/osascript",
+                    "-e",
+                    script,
+                    str(message),
+                ],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
 
 
 def acquire_single_instance_lock():
     """Prevent multiple desktop receivers from pasting the same message."""
-    if os.name != "nt":
-        return None
-    try:
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        handle = kernel32.CreateMutexW(None, True, MUTEX_NAME)
-        if not handle:
+    if os.name == "nt":
+        try:
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            handle = kernel32.CreateMutexW(None, True, MUTEX_NAME)
+            if not handle:
+                return None
+            if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
+                kernel32.CloseHandle(handle)
+                return False
+            return handle
+        except Exception:
             return None
-        if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
-            kernel32.CloseHandle(handle)
+    try:
+        import fcntl
+
+        lock_file = open(os.path.join(RUNTIME_DIR, "voice-assistant.lock"), "a+")
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            lock_file.close()
             return False
-        return handle
+        return lock_file
     except Exception:
         return None
 
 
 def release_single_instance_lock(handle):
-    if handle in (None, False) or os.name != "nt":
+    if handle in (None, False):
+        return
+    if os.name == "nt":
+        try:
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.ReleaseMutex(handle)
+            kernel32.CloseHandle(handle)
+        except Exception:
+            pass
         return
     try:
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel32.ReleaseMutex(handle)
-        kernel32.CloseHandle(handle)
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
     except Exception:
         pass
 
@@ -105,45 +145,6 @@ def is_port_open(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.2)
         return sock.connect_ex(("127.0.0.1", port)) == 0
-
-
-def listening_pids(port):
-    try:
-        output = subprocess.check_output(
-            ["netstat", "-ano"],
-            cwd=BASE_DIR,
-            creationflags=CREATE_NO_WINDOW,
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception:
-        return set()
-
-    pids = set()
-    needle = f":{port}"
-    for line in output.splitlines():
-        if needle not in line or "LISTENING" not in line:
-            continue
-        parts = line.split()
-        if parts and parts[-1].isdigit():
-            pids.add(parts[-1])
-    return pids
-
-
-def cleanup_port(port):
-    """Stop a stale server from an earlier launch."""
-    current_pid = str(os.getpid())
-    for pid in listening_pids(port):
-        if pid == current_pid:
-            continue
-        subprocess.run(
-            ["taskkill", "/F", "/PID", pid],
-            cwd=BASE_DIR,
-            creationflags=CREATE_NO_WINDOW,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
 
 
 def run_hidden(args):
@@ -283,7 +284,6 @@ def main():
         firewall_warning = ensure_firewall_rule()
         if firewall_warning:
             os.environ["VOICE_ASSISTANT_FIREWALL_WARNING"] = firewall_warning
-        cleanup_port(PORT)
         server_process, server_log = start_server()
         if not wait_for_server(server_process, PORT):
             show_error(

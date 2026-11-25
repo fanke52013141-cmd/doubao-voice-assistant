@@ -17,6 +17,13 @@ if %errorlevel% equ 0 (
     exit /b
 )
 
+for %%V in (Python313 Python312 Python311 Python310) do (
+    if exist "%LOCALAPPDATA%\Programs\Python\%%V\pythonw.exe" (
+        start "" "%LOCALAPPDATA%\Programs\Python\%%V\pythonw.exe" "%~dp0launcher.py"
+        exit /b
+    )
+)
+
 where python >nul 2>&1
 if %errorlevel% neq 0 (
     echo [ERROR] Python not found!
